@@ -3,12 +3,16 @@
     xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" tools:ignore="QueryAllPackagesPermission" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
 
     <application
         android:allowBackup="true"
@@ -19,6 +23,7 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.UNGKER">
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -26,16 +31,32 @@
             android:theme="@style/Theme.UNGKER">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
-
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".LockActivity"
+            android:excludeFromRecents="true"
+            android:showOnLockScreen="true"
+            android:launchMode="singleInstance"
+            android:theme="@style/Theme.UNGKER" />
+
+        <activity
+            android:name=".SholatLockActivity"
+            android:excludeFromRecents="true"
+            android:showOnLockScreen="true"
+            android:launchMode="singleInstance"
+            android:exported="false"
+            android:theme="@style/Theme.UNGKER" />
+
         <service
             android:name=".UngkerService"
             android:foregroundServiceType="specialUse"
             android:exported="false" />
 
-        <receiver android:name=".BootReceiver" android:enabled="true" android:exported="true">
+        <receiver android:name=".BootReceiver" android:enabled="true" android:exported="true"
+            tools:ignore="ExportedReceiver">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
             </intent-filter>
