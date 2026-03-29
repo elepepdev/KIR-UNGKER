@@ -317,6 +317,81 @@ class QuranDatabaseHelper(val context: Context) : SQLiteOpenHelper(context, DATA
         }
     }
 
+    // ─── SAMBUNG AYAT ─────────────────────────────────────────────────────────
+
+    /**
+     * Ambil semua ayat dari satu surah berdasarkan ID.
+     * Return: Pair(nameAr, List<String> ayat)
+     */
+    fun getVersesFromSurah(surahId: Int): Pair<String, List<String>> {
+        return try {
+            val db = readableDatabase
+            db.rawQuery(
+                "SELECT name_ar, content FROM chapters WHERE id = ?",
+                arrayOf(surahId.toString())
+            ).use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val nameAr  = cursor.getString(0) ?: "Surah"
+                    val content = cursor.getString(1) ?: ""
+                    val verses  = content.split(VERSE_SPLIT_REGEX)
+                        .filter { it.isNotBlank() }.map { it.trim() }
+                    nameAr to verses
+                } else {
+                    "Surah" to emptyList()
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "getVersesFromSurah error: ${e.message}", e)
+            "Surah" to emptyList()
+        }
+    }
+
+    /**
+     * Ambil ayat dari surah tertentu untuk kuis susun kata.
+     * - Hanya hitung token yang mengandung huruf Arab asli (abaikan tanda waqf/ayat)
+     * - Range kata diperlebar agar tidak terlalu ketat untuk surat panjang
+     * [fromAyah] dan [toAyah] adalah 1-based index, inklusif.
+     * [maxCount] jumlah ayat yang diambil.
+     */
+    fun getQuizVerses(
+        surahId: Int,
+        fromAyah: Int = 1,
+        toAyah: Int = Int.MAX_VALUE,
+        maxCount: Int = 10
+    ): Pair<String, List<String>> {
+        return try {
+            val (nameAr, allVerses) = getVersesFromSurah(surahId)
+            if (allVerses.isEmpty()) return "Surah" to emptyList()
+
+            val endIdx   = minOf(toAyah, allVerses.size)
+            val startIdx = (fromAyah - 1).coerceIn(0, endIdx - 1)
+            val rangeVerses = allVerses.subList(startIdx, endIdx)
+
+            // Hitung kata Arab valid: token yang mengandung minimal 1 huruf Arab asli
+            // Range dipersempit ke huruf saja — exclude harakat (U+064B-065F),
+            // tanda waqf (U+06D4-06ED), angka Arab, dan simbol non-huruf
+            fun arabWordCount(verse: String): Int =
+                verse.split(Regex("\\s+")).count { token ->
+                    token.any { c ->
+                        c.code in 0x0621..0x063A ||  // Huruf Arab dasar
+                                c.code in 0x0641..0x064A ||  // Huruf Arab lanjutan
+                                c.code in 0x0671..0x06D3     // Huruf Arab extended
+                    }
+                }
+
+            // Filter: 2-15 kata Arab valid
+            // Range lebih lebar agar surat panjang tetap punya cukup soal
+            val suitable = rangeVerses.filter { arabWordCount(it) in 2..15 }
+            val pool = if (suitable.isNotEmpty()) suitable else rangeVerses
+
+            val selected = pool.shuffled().take(maxCount)
+            nameAr to selected
+        } catch (e: Exception) {
+            Log.e(TAG, "getQuizVerses error: ${e.message}", e)
+            "Surah" to emptyList()
+        }
+    }
+
     // ─── NORMALISASI ─────────────────────────────────────────────────────────────
 
     fun normalizeArabic(text: String): String {

@@ -1,5 +1,6 @@
 package com.dame.ungker.ungkeh
 
+import android.Manifest
 import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.Intent
@@ -9,9 +10,17 @@ import android.graphics.drawable.Drawable
 import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.os.Build
 import android.os.Bundle
+import android.speech.RecognitionListener
+import android.speech.RecognizerIntent
+import android.speech.SpeechRecognizer
 import android.widget.Toast
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -22,7 +31,10 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.lazy.LazyColumn
@@ -41,6 +53,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -55,17 +68,26 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.drawable.toBitmap
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -479,6 +501,7 @@ fun LayarUtama(isDarkMode: Boolean = false, onToggleDarkMode: () -> Unit = {}) {
     var selectedTab by remember { mutableIntStateOf(0) }
     var remainingTimeMillis by remember { mutableLongStateOf(0L) }
     var blockedCount by remember { mutableIntStateOf(0) }
+    var hideNavBar by remember { mutableStateOf(false) }
 
     val maxCreditLimit = 3600000L // 1 Jam
     val READ_COOLDOWN_MS = 5L * 60 * 1000L  // 5 menit cooldown untuk tambah waktu
@@ -495,32 +518,63 @@ fun LayarUtama(isDarkMode: Boolean = false, onToggleDarkMode: () -> Unit = {}) {
                     blockedCount = count
                 }
             }
-            delay(500)
+            delay(5000)
         }
     }
 
     Scaffold(
         containerColor = bg,
         bottomBar = {
-            NavigationBar(containerColor = navBg, tonalElevation = 8.dp) {
-                val items = listOf("🏠", "📱", "📖", "📊", "👤")
-                items.forEachIndexed { index, icon ->
-                    NavigationBarItem(
-                        selected = selectedTab == index,
-                        onClick = { selectedTab = index },
-                        icon = {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text(icon, fontSize = 24.sp)
-                                if (selectedTab == index) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(4.dp)
-                                            .background(Color(0xFF2E7D32), CircleShape)
+            if (!hideNavBar) {
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    color = navBg,
+                    // Shadow ke atas: gunakan drawBehind dengan gradient tipis
+                    shadowElevation = 0.dp,
+                    tonalElevation  = 0.dp
+                ) {
+                    Column {
+                        // Garis shadow tipis di atas navbar
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(1.dp)
+                                .background(
+                                    brush = androidx.compose.ui.graphics.Brush.verticalGradient(
+                                        colors = listOf(
+                                            Color.Black.copy(alpha = if (dark) 0.25f else 0.10f),
+                                            Color.Transparent
+                                        )
                                     )
-                                }
+                                )
+                        )
+                        NavigationBar(
+                            containerColor = Color.Transparent,
+                            tonalElevation = 0.dp
+                        ) {
+                            val items = listOf("🏠", "📱", "📖", "📊", "👤")
+                            items.forEachIndexed { index, icon ->
+                                NavigationBarItem(
+                                    selected = selectedTab == index,
+                                    onClick  = { selectedTab = index },
+                                    icon = {
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                            Text(icon, fontSize = 24.sp)
+                                            if (selectedTab == index) {
+                                                Spacer(Modifier.height(2.dp))
+                                                Box(modifier = Modifier
+                                                    .size(4.dp)
+                                                    .background(Color(0xFF2E7D32), CircleShape))
+                                            }
+                                        }
+                                    },
+                                    colors = NavigationBarItemDefaults.colors(
+                                        indicatorColor = Color.Transparent
+                                    )
+                                )
                             }
                         }
-                    )
+                    }
                 }
             }
         }
@@ -579,7 +633,7 @@ fun LayarUtama(isDarkMode: Boolean = false, onToggleDarkMode: () -> Unit = {}) {
                         }
                     )
                     1 -> DaftarAplikasiScreen(isDarkMode = dark)
-                    2 -> QuranScreen()
+                    2 -> QuranScreen(onHideNavBar = { hideNavBar = it })
                     3 -> StatistikScreen(isDarkMode = dark)
                     else -> Column(
                         modifier = Modifier.fillMaxSize(),
@@ -638,419 +692,715 @@ fun getJuzOfPage(page: Int): Int {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ═══════════════════════════════════════════════════════════════════════════
+// QURAN SCREEN — Level 1: Hub (Mushaf | Sambung Ayat)
+// ═══════════════════════════════════════════════════════════════════════════
+
 @Composable
-fun QuranScreen() {
-    val context = LocalContext.current
+fun QuranScreen(onHideNavBar: (Boolean) -> Unit = {}) {
+    val context  = LocalContext.current
     val dbHelper = remember(context) { QuranDatabaseHelper(context) }
 
-    var surahList     by remember { mutableStateOf<List<Chapter>>(emptyList()) }
-    var selectedSurah by remember { mutableStateOf<Chapter?>(null) }
-    var selectedPage  by remember { mutableIntStateOf(-1) }
-    var quranTab      by remember { mutableIntStateOf(0) }   // 0=Surat 1=Halaman 2=Juz
-    var isLoading     by remember { mutableStateOf(true) }
-
-    // ── State pencarian ──────────────────────────────────────────────────────
-    var surahSearchQuery by remember { mutableStateOf("") }
-    var pageSearchQuery  by remember { mutableStateOf("") }
-    var juzSearchQuery   by remember { mutableStateOf("") }
-
-    LaunchedEffect(Unit) {
-        withContext(Dispatchers.IO) {
-            val list = try { dbHelper.getAllChapters() }
-            catch (e: Exception) { android.util.Log.e("QuranScreen", "getAllChapters gagal: ${e.message}", e); emptyList() }
-            withContext(Dispatchers.Main) { surahList = list; isLoading = false }
-        }
-    }
-
-    // Filter surah: nama Arab, nama latin, nomor, atau "juz X"
-    val filteredSurahList = remember(surahList, surahSearchQuery) {
-        if (surahSearchQuery.isBlank()) surahList
-        else {
-            val q = surahSearchQuery.trim().lowercase()
-            val juzNum = Regex("^(?:juz|jz)\\s*(\\d+)$").find(q)?.groupValues?.get(1)?.toIntOrNull()
-            if (juzNum != null && juzNum in 1..30) {
-                surahList.filter { getJuzOfSurah(it.id) == juzNum }
-            } else {
-                surahList.filter { chapter ->
-                    chapter.name.contains(q, ignoreCase = true) ||
-                            chapter.nameLatin.contains(q, ignoreCase = true) ||
-                            chapter.id.toString() == q
-                }
-            }
-        }
-    }
-
-    // Filter halaman: nomor atau "juz X"
-    val filteredPages = remember(pageSearchQuery) {
-        val q = pageSearchQuery.trim().lowercase()
-        when {
-            q.isBlank() -> (1..604).toList()
-            else -> {
-                val juzNum = Regex("^(?:juz|jz)\\s*(\\d+)$").find(q)?.groupValues?.get(1)?.toIntOrNull()
-                if (juzNum != null && juzNum in 1..30) {
-                    val start = JUZ_PAGE_START[juzNum - 1]
-                    val end   = if (juzNum < 30) JUZ_PAGE_START[juzNum] - 1 else 604
-                    (start..end).toList()
-                } else {
-                    (1..604).filter { it.toString().startsWith(q) }
-                }
-            }
-        }
-    }
-
-    // Filter tab Juz
-    val filteredJuzList = remember(juzSearchQuery) {
-        val q = juzSearchQuery.trim()
-        if (q.isBlank()) (1..30).toList()
-        else { val num = q.toIntOrNull(); if (num != null) (1..30).filter { it == num } else emptyList() }
-    }
+    var showMushaf      by remember { mutableStateOf(false) }
+    var showSambungAyat by remember { mutableStateOf(false) }
 
     when {
-        // ── Loading ──────────────────────────────────────────────────────────
-        isLoading -> Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                CircularProgressIndicator(color = Color(0xFF2E7D32))
-                Spacer(modifier = Modifier.height(16.dp))
-                Text("Memuat Mushaf...", color = Color(0xFF757575))
+        showMushaf      -> MushafScreen(dbHelper = dbHelper, onBack = { showMushaf = false }, onHideNavBar = onHideNavBar)
+        showSambungAyat -> SambungAyatScreen(
+            dbHelper     = dbHelper,
+            onBack       = { showSambungAyat = false },
+            onHideNavBar = onHideNavBar
+        )
+        else -> QuranHubScreen(
+            onMushaf      = { showMushaf = true },
+            onSambungAyat = { showSambungAyat = true }
+        )
+    }
+}
+
+// ── Level 1: Hub dengan 2 card ────────────────────────────────────────────
+
+@Composable
+fun QuranHubScreen(onMushaf: () -> Unit, onSambungAyat: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 20.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Spacer(modifier = Modifier.height(32.dp))
+        Text(
+            "Al-Qur'an",
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.ExtraBold,
+            color = textPrimC()
+        )
+        Text(
+            "Pilih aktivitas yang ingin kamu lakukan",
+            style = MaterialTheme.typography.bodyMedium,
+            color = textSecC()
+        )
+        Spacer(modifier = Modifier.height(40.dp))
+
+        // Card Mushaf
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onMushaf() },
+            colors = CardDefaults.cardColors(containerColor = cardBg()),
+            shape = RoundedCornerShape(24.dp),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        ) {
+            Row(
+                modifier = Modifier.padding(24.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(64.dp)
+                        .background(greenBgC(), RoundedCornerShape(16.dp)),
+                    contentAlignment = Alignment.Center
+                ) { Text("📖", fontSize = 32.sp) }
+                Spacer(modifier = Modifier.width(20.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "Mushaf",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = textPrimC()
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        "Baca Al-Qur'an per surat, halaman, atau juz",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = textSecC()
+                    )
+                }
+                Text("›", fontSize = 28.sp, color = greenAccent(), fontWeight = FontWeight.Bold)
             }
         }
 
-        // ── Detail Surah ──────────────────────────────────────────────────────
-        selectedSurah != null -> {
-            val surah = selectedSurah!!
-            val verses = remember(surah.id) {
-                surah.content.split(Regex("\\[\\d+\\]")).filter { it.isNotBlank() }.map { it.trim() }
-            }
-            val juzSurah = remember(surah.id) { getJuzOfSurah(surah.id) }
+        Spacer(modifier = Modifier.height(16.dp))
 
-            Column(modifier = Modifier.fillMaxSize()) {
-                Row(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = { selectedSurah = null }) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Kembali")
-                    }
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(surah.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                        if (surah.nameLatin.isNotBlank())
-                            Text(surah.nameLatin, style = MaterialTheme.typography.bodySmall, color = Color(0xFF2E7D32), fontWeight = FontWeight.Medium)
-                        Text("${verses.size} ayat  •  Juz $juzSurah", style = MaterialTheme.typography.bodySmall, color = Color(0xFF757575))
+        // Card Sambung Ayat
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { onSambungAyat() },
+            colors = CardDefaults.cardColors(containerColor = cardBg()),
+            shape = RoundedCornerShape(24.dp),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        ) {
+            Row(
+                modifier = Modifier.padding(24.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(64.dp)
+                        .background(Color(0xFFFFF3E0), RoundedCornerShape(16.dp)),
+                    contentAlignment = Alignment.Center
+                ) { Text("🧩", fontSize = 32.sp) }
+                Spacer(modifier = Modifier.width(20.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "Sambung Ayat",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = textPrimC()
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        "Susun potongan ayat dari surat pilihanmu",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = textSecC()
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Surface(
+                        color = Color(0xFFFFF3E0),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text(
+                            "Bisa dimainkan offline  ✓",
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color(0xFFE65100),
+                            fontWeight = FontWeight.Bold
+                        )
                     }
                 }
-                HorizontalDivider(color = Color(0xFFEEEEEE))
-                if (verses.isEmpty()) {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text("Konten surah tidak tersedia.", color = Color(0xFF757575))
-                    }
+                Text("›", fontSize = 28.sp, color = Color(0xFFE65100), fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MUSHAF SCREEN — Per halaman, dengan bookmark, FAB mic/buku, progress juz
+// ═══════════════════════════════════════════════════════════════════════════
+
+@Composable
+fun MushafScreen(
+    dbHelper     : QuranDatabaseHelper,
+    onBack       : () -> Unit,
+    onHideNavBar : (Boolean) -> Unit = {}
+) {
+    val context = LocalContext.current
+    var selectedPage   by remember { mutableIntStateOf(-1) }
+    // Arah navigasi: true = maju (ke kanan layar), false = mundur (ke kiri layar)
+    var navForward     by remember { mutableStateOf(true) }
+
+    // Sembunyikan navbar saat membaca
+    LaunchedEffect(selectedPage) { onHideNavBar(selectedPage != -1) }
+    DisposableEffect(Unit) { onDispose { onHideNavBar(false) } }
+
+    when {
+        selectedPage != -1 -> AnimatedContent(
+            targetState = selectedPage,
+            transitionSpec = {
+                if (navForward) {
+                    // Maju → konten baru masuk dari kiri, lama keluar ke kanan
+                    // (Quran: halaman berikutnya ada di sebelah kiri)
+                    (slideInHorizontally(
+                        initialOffsetX = { -it },
+                        animationSpec = tween(300, easing = FastOutSlowInEasing)
+                    ) + fadeIn(tween(200))).togetherWith(
+                        slideOutHorizontally(
+                            targetOffsetX = { it },
+                            animationSpec = tween(300, easing = FastOutSlowInEasing)
+                        ) + fadeOut(tween(200))
+                    )
                 } else {
-                    LazyColumn(modifier = Modifier.weight(1f),
-                        contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(24.dp)
+                    // Mundur → konten baru masuk dari kanan, lama keluar ke kiri
+                    (slideInHorizontally(
+                        initialOffsetX = { it },
+                        animationSpec = tween(300, easing = FastOutSlowInEasing)
+                    ) + fadeIn(tween(200))).togetherWith(
+                        slideOutHorizontally(
+                            targetOffsetX = { -it },
+                            animationSpec = tween(300, easing = FastOutSlowInEasing)
+                        ) + fadeOut(tween(200))
+                    )
+                }.using(SizeTransform(clip = true))
+            },
+            label = "PageTransition"
+        ) { animatedPage ->
+            MushafPageReader(
+                page     = animatedPage,
+                dbHelper = dbHelper,
+                onBack   = { selectedPage = -1 },
+                onNav    = { newPage ->
+                    navForward = newPage > selectedPage
+                    selectedPage = newPage
+                }
+            )
+        }
+        else -> MushafPagePicker(
+            dbHelper   = dbHelper,
+            onBack     = onBack,
+            onOpenPage = { selectedPage = it }
+        )
+    }
+}
+
+// ── Picker halaman (grid 4 kolom + bookmark) ──────────────────────────────
+
+@Composable
+fun MushafPagePicker(
+    dbHelper   : QuranDatabaseHelper,
+    onBack     : () -> Unit,
+    onOpenPage : (Int) -> Unit
+) {
+    val context = LocalContext.current
+    val sp = remember { context.getSharedPreferences("UNGKER_PREF", Context.MODE_PRIVATE) }
+    var bookmarks by remember {
+        mutableStateOf(sp.getStringSet("mushaf_bookmarks", emptySet())?.mapNotNull { it.toIntOrNull() }?.toSet() ?: emptySet())
+    }
+    var searchQuery by remember { mutableStateOf("") }
+    val dark = LocalIsDarkMode.current
+
+    val filteredPages = remember(searchQuery) {
+        val q = searchQuery.trim()
+        if (q.isBlank()) (1..604).toList()
+        else {
+            val juzNum = Regex("^(?:juz|jz)\\s*(\\d+)$").find(q.lowercase())?.groupValues?.get(1)?.toIntOrNull()
+            if (juzNum != null && juzNum in 1..30) {
+                val s = JUZ_PAGE_START[juzNum - 1]
+                val e = if (juzNum < 30) JUZ_PAGE_START[juzNum] - 1 else 604
+                (s..e).toList()
+            } else (1..604).filter { it.toString().startsWith(q) }
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        // Header
+        Row(modifier = Modifier.fillMaxWidth().padding(start = 4.dp, top = 12.dp, end = 16.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onBack) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = textPrimC())
+            }
+            Text("Mushaf", style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold, color = textPrimC(), modifier = Modifier.weight(1f))
+            if (bookmarks.isNotEmpty()) {
+                Surface(
+                    onClick = { onOpenPage(bookmarks.max()) },
+                    shape = RoundedCornerShape(10.dp),
+                    color = greenBgC()
+                ) {
+                    Text("🔖 Lanjut", modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        style = MaterialTheme.typography.labelMedium, color = Color(0xFF2E7D32),
+                        fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+        OutlinedTextField(
+            value = searchQuery, onValueChange = { searchQuery = it.take(10) },
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            placeholder = { Text("Cari halaman (1–604) atau 'Juz 5'", color = textMutC()) },
+            leadingIcon = { Icon(Icons.Default.Search, null, tint = textSecC()) },
+            trailingIcon = { if (searchQuery.isNotEmpty()) IconButton({ searchQuery = "" }) { Text("✕", color = textSecC(), fontSize = 14.sp) } },
+            singleLine = true, shape = RoundedCornerShape(14.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = Color(0xFF2E7D32), unfocusedBorderColor = borderC(),
+                focusedContainerColor = cardBg(), unfocusedContainerColor = cardBg(),
+                focusedTextColor = textPrimC(), unfocusedTextColor = textPrimC())
+        )
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(4),
+            modifier = Modifier.weight(1f),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 20.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            var lastJuz = -1
+            filteredPages.forEach { pageNum ->
+                val pageJuz = getJuzOfPage(pageNum)
+                if (searchQuery.isBlank() && pageJuz != lastJuz && JUZ_PAGE_START.contains(pageNum)) {
+                    lastJuz = pageJuz
+                    item(key = "sep_$pageJuz", span = { GridItemSpan(4) }) { JuzSeparator(pageJuz) }
+                }
+                val isBookmarked = bookmarks.contains(pageNum)
+                item(key = "p_$pageNum") {
+                    Card(
+                        modifier = Modifier.fillMaxWidth().aspectRatio(1f).clickable { onOpenPage(pageNum) },
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (isBookmarked) Color(0xFFE8F5E9) else cardBg()),
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(if (isBookmarked) 2.dp else 1.dp,
+                            if (isBookmarked) Color(0xFF2E7D32) else borderC())
                     ) {
-                        items(verses.size, key = { it }) { index ->
-                            Column(modifier = Modifier.fillMaxWidth()) {
-                                Text(text = verses[index],
-                                    style = MaterialTheme.typography.headlineMedium.copy(lineHeight = 48.sp),
-                                    textAlign = TextAlign.Right, modifier = Modifier.fillMaxWidth())
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Surface(color = Color(0xFFE8F5E9), shape = CircleShape) {
-                                    Text(text = "Ayat ${index + 1}",
-                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-                                        style = MaterialTheme.typography.labelSmall, color = Color(0xFF2E7D32))
-                                }
-                                HorizontalDivider(modifier = Modifier.padding(top = 16.dp), color = Color(0xFFEEEEEE))
+                        Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                if (isBookmarked) Text("🔖", fontSize = 10.sp)
+                                Text("Hal", fontSize = 10.sp, color = if (isBookmarked) Color(0xFF2E7D32) else Color.Gray)
+                                Text(pageNum.toString(), fontWeight = FontWeight.Bold,
+                                    color = if (isBookmarked) Color(0xFF2E7D32) else textPrimC())
                             }
                         }
                     }
                 }
             }
         }
+    }
+}
 
-        // ── Detail Halaman ────────────────────────────────────────────────────
-        selectedPage != -1 -> {
-            val page = selectedPage
-            var pageVerses    by remember { mutableStateOf<List<Verse>>(emptyList()) }
-            var isPageLoading by remember { mutableStateOf(true) }
-            var pageError     by remember { mutableStateOf(false) }
+// ── Page Reader — halaman penuh dengan semua fitur ────────────────────────
 
-            LaunchedEffect(page) {
-                isPageLoading = true; pageError = false
-                withContext(Dispatchers.IO) {
-                    val list = try { dbHelper.getVersesByPage(page) }
-                    catch (e: Exception) { android.util.Log.e("QuranScreen", "error: ${e.message}", e); null }
-                    withContext(Dispatchers.Main) {
-                        if (list == null) pageError = true else pageVerses = list
-                        isPageLoading = false
-                    }
+@Composable
+fun MushafPageReader(
+    page     : Int,
+    dbHelper : QuranDatabaseHelper,
+    onBack   : () -> Unit,
+    onNav    : (Int) -> Unit
+) {
+    val context = LocalContext.current
+    val sp = remember { context.getSharedPreferences("UNGKER_PREF", Context.MODE_PRIVATE) }
+    val dark = LocalIsDarkMode.current
+
+    // Cek koneksi
+    val isOnline = remember {
+        val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val cap = cm.getNetworkCapabilities(cm.activeNetwork)
+        cap?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true ||
+                cap?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true
+    }
+
+    // ── Verses ──────────────────────────────────────────────────────────
+    var pageVerses    by remember { mutableStateOf<List<Verse>>(emptyList()) }
+    var isPageLoading by remember { mutableStateOf(true) }
+    var pageError     by remember { mutableStateOf(false) }
+    LaunchedEffect(page) {
+        isPageLoading = true; pageError = false
+        withContext(Dispatchers.IO) {
+            val list = try { dbHelper.getVersesByPage(page) } catch (e: Exception) { null }
+            withContext(Dispatchers.Main) {
+                if (list == null) pageError = true else pageVerses = list
+                isPageLoading = false
+            }
+        }
+    }
+
+    // ── Bookmark ────────────────────────────────────────────────────────
+    var bookmarks by remember {
+        mutableStateOf(sp.getStringSet("mushaf_bookmarks", emptySet())?.mapNotNull { it.toIntOrNull() }?.toSet() ?: emptySet())
+    }
+    val isBookmarked = bookmarks.contains(page)
+    fun toggleBookmark() {
+        val newSet = if (isBookmarked) bookmarks - page else bookmarks + page
+        bookmarks = newSet
+        sp.edit().putStringSet("mushaf_bookmarks", newSet.map { it.toString() }.toSet()).apply()
+    }
+
+    // ── STT State ───────────────────────────────────────────────────────
+    var sedangMerekam   by remember { mutableStateOf(false) }
+    var transcript      by remember { mutableStateOf("") }
+    var matchedPositions by remember { mutableStateOf(setOf<Triple<Int,Int,Int>>()) }
+    // Triple(surahId, ayahId, wordIdx) — unik per kata per ayat
+
+    val speechScope = remember { CoroutineScope(Dispatchers.Main + Job()) }
+
+    val speechRecognizer = remember {
+        if (isOnline && SpeechRecognizer.isRecognitionAvailable(context))
+            SpeechRecognizer.createSpeechRecognizer(context) else null
+    }
+    val recIntent = remember {
+        Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "ar-SA")
+            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+        }
+    }
+
+    fun norm(text: String) = text
+        .replace(Regex("[\u064B-\u065F\u0670]"), "")
+        .replace(Regex("[أإآٱ]"), "ا")
+        .replace(Regex("[ىی]"), "ي")
+        .replace("ة", "ه").trim()
+
+    fun updateHighlight(raw: String) {
+        val userNorms = raw.split(Regex("\\s+")).map { norm(it) }.filter { it.isNotEmpty() }
+        val newMatched = mutableSetOf<Triple<Int,Int,Int>>()
+        pageVerses.forEach { verse ->
+            verse.text.split(Regex("\\s+")).forEachIndexed { wIdx, word ->
+                val wNorm = norm(word)
+                if (wNorm.isNotEmpty() && userNorms.any { u -> u == wNorm || u.contains(wNorm) || wNorm.contains(u) })
+                    newMatched.add(Triple(verse.surahId, verse.ayahId, wIdx))
+            }
+        }
+        matchedPositions = matchedPositions + newMatched
+
+        // ── Auto-bookmark: simpan halaman ini saat mulai membaca ──────────
+        if (newMatched.isNotEmpty() && !isBookmarked) {
+            bookmarks = bookmarks + page
+            sp.edit().putStringSet("mushaf_bookmarks", (bookmarks + page).map { it.toString() }.toSet()).apply()
+        }
+
+        // ── Auto-next: pindah halaman jika semua kata sudah di-highlight ──
+        // Hitung total kata valid di halaman ini
+        val totalWords = pageVerses.sumOf { verse ->
+            verse.text.split(Regex("\\s+")).count { token ->
+                token.any { c -> c.code in 0x0621..0x063A || c.code in 0x0641..0x064A || c.code in 0x0671..0x06D3 }
+            }
+        }
+        val matchedCount = matchedPositions.size
+        // Threshold: 80% kata terbaca → auto pindah ke halaman berikutnya
+        if (totalWords > 0 && matchedCount >= totalWords * 0.80 && page < 604 && sedangMerekam) {
+            speechScope.launch {
+                delay(1500)  // jeda 1.5 detik agar user lihat semua hijau
+                if (sedangMerekam) {
+                    sedangMerekam = false
+                    try { speechRecognizer?.stopListening() } catch (_: Exception) {}
+                    onNav(page + 1)
                 }
             }
+        }
+    }
 
-            Column(modifier = Modifier.fillMaxSize()) {
-                Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = { selectedPage = -1 }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Kembali") }
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text("Halaman $page", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                        Text("Juz ${getJuzOfPage(page)}", style = MaterialTheme.typography.bodySmall, color = Color(0xFF2E7D32), fontWeight = FontWeight.Medium)
+    val sttListener = remember {
+        object : RecognitionListener {
+            override fun onReadyForSpeech(p: Bundle?) {}
+            override fun onBeginningOfSpeech() {}
+            override fun onRmsChanged(r: Float) {}
+            override fun onBufferReceived(b: ByteArray?) {}
+            override fun onEndOfSpeech() {}
+            override fun onEvent(t: Int, p: Bundle?) {}
+            override fun onError(error: Int) {
+                val retry = error == SpeechRecognizer.ERROR_NO_MATCH ||
+                        error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT ||
+                        error == SpeechRecognizer.ERROR_CLIENT
+                if (sedangMerekam) speechScope.launch {
+                    delay(if (retry) 200L else 500L)
+                    if (sedangMerekam) try { speechRecognizer?.startListening(recIntent) } catch (_: Exception) {}
+                }
+            }
+            override fun onResults(results: Bundle?) {
+                val text = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull() ?: return
+                if (text.isNotBlank()) {
+                    transcript = if (transcript.isBlank()) text else "$transcript $text"
+                    updateHighlight(transcript)
+                }
+                if (sedangMerekam) speechScope.launch {
+                    delay(200)
+                    if (sedangMerekam) try { speechRecognizer?.startListening(recIntent) } catch (_: Exception) {}
+                }
+            }
+            override fun onPartialResults(partial: Bundle?) {
+                val text = partial?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)?.firstOrNull() ?: return
+                if (text.isNotBlank()) updateHighlight("$transcript $text")
+            }
+        }
+    }
+
+    DisposableEffect(page) {
+        speechRecognizer?.setRecognitionListener(sttListener)
+        onDispose {
+            sedangMerekam = false
+            speechRecognizer?.stopListening()
+            speechRecognizer?.destroy()
+            speechScope.cancel()
+        }
+    }
+
+    val permLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) {
+            transcript = ""; matchedPositions = emptySet(); sedangMerekam = true
+            try { speechRecognizer?.startListening(recIntent) } catch (_: Exception) {}
+        }
+    }
+
+    // ── Timer baca (offline) ─────────────────────────────────────────────
+    var readingSeconds by remember { mutableLongStateOf(0L) }
+    var isReadingActive by remember { mutableStateOf(false) }
+    LaunchedEffect(isReadingActive) {
+        if (isReadingActive) {
+            while (isReadingActive) {
+                delay(1000)
+                readingSeconds++
+            }
+        }
+    }
+
+    // ── Juz progress ────────────────────────────────────────────────────
+    val currentJuz = getJuzOfPage(page)
+    val juzStart   = JUZ_PAGE_START[currentJuz - 1]
+    val juzEnd     = if (currentJuz < 30) JUZ_PAGE_START[currentJuz] - 1 else 604
+    val juzProgress = (page - juzStart).toFloat() / (juzEnd - juzStart + 1).toFloat()
+
+    // ── UI ───────────────────────────────────────────────────────────────
+    Scaffold(
+        containerColor = if (dark) Color(0xFF0F172A) else Color(0xFFF8F9FA),
+        topBar = {
+            Column {
+                Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = {
+                        sedangMerekam = false; isReadingActive = false
+                        speechRecognizer?.stopListening()
+                        onBack()
+                    }) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = textPrimC())
                     }
-                    IconButton(onClick = { if (page > 1) selectedPage = page - 1 }, enabled = page > 1) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text("Halaman $page", fontWeight = FontWeight.Bold, color = textPrimC())
+                        Text("Juz $currentJuz", style = MaterialTheme.typography.bodySmall, color = Color(0xFF2E7D32))
+                    }
+                    // Navigasi halaman
+                    IconButton(onClick = { if (page > 1) onNav(page - 1) }, enabled = page > 1) {
                         Text("◀", fontSize = 18.sp, color = if (page > 1) Color(0xFF2E7D32) else Color.LightGray)
                     }
-                    IconButton(onClick = { if (page < 604) selectedPage = page + 1 }, enabled = page < 604) {
+                    IconButton(onClick = { if (page < 604) onNav(page + 1) }, enabled = page < 604) {
                         Text("▶", fontSize = 18.sp, color = if (page < 604) Color(0xFF2E7D32) else Color.LightGray)
                     }
+                    // Bookmark
+                    IconButton(onClick = { toggleBookmark() }) {
+                        Icon(
+                            imageVector = Icons.Filled.Star,
+                            contentDescription = if (isBookmarked) "Hapus Bookmark" else "Tambah Bookmark",
+                            tint = if (isBookmarked) Color(0xFF2E7D32) else textSecC().copy(alpha = 0.35f),
+                            modifier = Modifier.size(26.dp)
+                        )
+                    }
                 }
-                HorizontalDivider(color = Color(0xFFEEEEEE))
-                when {
-                    isPageLoading -> Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            CircularProgressIndicator(color = Color(0xFF2E7D32))
-                            Spacer(modifier = Modifier.height(8.dp))
-                            Text("Memuat halaman $page...", color = Color(0xFF757575), fontSize = 13.sp)
-                        }
-                    }
-                    pageError -> Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text("Gagal memuat halaman $page.", color = Color(0xFF757575), textAlign = TextAlign.Center,
-                            modifier = Modifier.padding(32.dp))
-                    }
-                    pageVerses.isEmpty() -> Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text("Tidak ada ayat ditemukan untuk halaman $page.", color = Color(0xFF757575))
-                    }
-                    else -> LazyColumn(modifier = Modifier.weight(1f),
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-                        verticalArrangement = Arrangement.spacedBy(24.dp)
-                    ) {
-                        items(pageVerses, key = { "${it.surahId}-${it.ayahId}" }) { verse ->
-                            Column(modifier = Modifier.fillMaxWidth()) {
-                                Text(text = verse.text,
-                                    style = MaterialTheme.typography.headlineMedium.copy(lineHeight = 50.sp),
-                                    textAlign = TextAlign.Right, modifier = Modifier.fillMaxWidth())
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Surface(color = Color(0xFFE8F5E9), shape = CircleShape) {
-                                    Text(text = "${verse.surahName} : ${verse.ayahId}",
-                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
-                                        style = MaterialTheme.typography.labelSmall, color = Color(0xFF2E7D32))
+                HorizontalDivider(color = dividerC())
+            }
+        },
+        bottomBar = {
+            // ── Progress Bar Juz (menggantikan navbar) ────────────────────
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                color = if (dark) Color(0xFF1E293B) else Color.White
+            ) {
+                Column {
+                    Box(modifier = Modifier.fillMaxWidth().height(1.dp)
+                        .background(Brush.verticalGradient(listOf(
+                            Color.Black.copy(if (dark) 0.25f else 0.10f), Color.Transparent))))
+                    Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)) {
+                        Row(modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically) {
+                            // Kiri: mode icon + info
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (!isOnline) {
+                                    // Offline: ikon buku + timer + halaman
+                                    Text("📖", fontSize = 16.sp)
+                                    Spacer(Modifier.width(6.dp))
+                                    Column {
+                                        Text("Hal $page",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = textPrimC(), fontWeight = FontWeight.Bold)
+                                        if (isReadingActive || readingSeconds > 0) {
+                                            val m = readingSeconds / 60; val s = readingSeconds % 60
+                                            Text(String.format(Locale.getDefault(), "%02d:%02d", m, s),
+                                                style = MaterialTheme.typography.labelSmall,
+                                                color = Color(0xFF2E7D32))
+                                        }
+                                    }
+                                } else if (sedangMerekam) {
+                                    Text("🎙️", fontSize = 16.sp)
+                                    Spacer(Modifier.width(6.dp))
+                                    Text("Mendengarkan...",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = Color(0xFFE65100))
+                                } else {
+                                    Text("📖", fontSize = 16.sp)
+                                    Spacer(Modifier.width(6.dp))
+                                    Text("Hal $page",
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = textSecC())
                                 }
-                                HorizontalDivider(modifier = Modifier.padding(top = 16.dp), color = Color(0xFFEEEEEE))
                             }
+                            // Kanan: info juz
+                            Text("Juz $currentJuz  •  Hal $juzStart–$juzEnd",
+                                style = MaterialTheme.typography.labelSmall, color = textMutC())
                         }
+                        Spacer(Modifier.height(6.dp))
+                        // Progress bar juz
+                        LinearProgressIndicator(
+                            progress = { juzProgress.coerceIn(0f, 1f) },
+                            modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
+                            color = Color(0xFF2E7D32),
+                            trackColor = if (dark) Color(0xFF334155) else Color(0xFFE5E7EB)
+                        )
                     }
+                }
+            }
+        },
+        floatingActionButton = {
+            // FAB: Mic (online) atau Buku (offline)
+            if (isOnline && speechRecognizer != null) {
+                FloatingActionButton(
+                    onClick = {
+                        if (!sedangMerekam) {
+                            if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO)
+                                == PackageManager.PERMISSION_GRANTED) {
+                                transcript = ""; matchedPositions = emptySet()
+                                sedangMerekam = true; isReadingActive = true
+                                try { speechRecognizer.startListening(recIntent) } catch (_: Exception) {}
+                            } else permLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                        } else {
+                            sedangMerekam = false
+                            speechRecognizer.stopListening()
+                        }
+                    },
+                    containerColor = if (sedangMerekam) Color(0xFFFFA000) else Color(0xFF2E7D32),
+                    contentColor = Color.White,
+                    shape = CircleShape
+                ) {
+                    Text(if (sedangMerekam) "⏹" else "🎙️", fontSize = 20.sp)
+                }
+            } else {
+                // Offline: FAB buku untuk toggle sesi baca
+                FloatingActionButton(
+                    onClick = {
+                        isReadingActive = !isReadingActive
+                        if (!isReadingActive) readingSeconds = 0L
+                    },
+                    containerColor = if (isReadingActive) Color(0xFFE65100) else Color(0xFF2E7D32),
+                    contentColor = Color.White,
+                    shape = CircleShape
+                ) {
+                    Text(if (isReadingActive) "⏹" else "📖", fontSize = 20.sp)
                 }
             }
         }
-
-        // ── Layar Utama (Surat / Halaman / Juz) ──────────────────────────────
-        else -> Column(modifier = Modifier.fillMaxSize()) {
-            Spacer(modifier = Modifier.height(24.dp))
-            Text("Al-Qur'anul Karim", style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 20.dp))
-
-            // 3 tab: Surat | Halaman | Juz
-            ScrollableTabRow(
-                selectedTabIndex = quranTab,
-                containerColor = Color.Transparent,
-                contentColor = Color(0xFF2E7D32),
-                edgePadding = 16.dp,
-                indicator = { tabPositions ->
-                    TabRowDefaults.SecondaryIndicator(
-                        Modifier.then(TabRowDefaults.tabIndicatorOffset(tabPositions[quranTab])),
-                        color = Color(0xFF2E7D32)
-                    )
-                }
-            ) {
-                Tab(selected = quranTab == 0, onClick = { quranTab = 0 }) { Text("Surat", modifier = Modifier.padding(16.dp)) }
-                Tab(selected = quranTab == 1, onClick = { quranTab = 1 }) { Text("Halaman", modifier = Modifier.padding(16.dp)) }
-                Tab(selected = quranTab == 2, onClick = { quranTab = 2 }) { Text("Juz", modifier = Modifier.padding(16.dp)) }
+    ) { innerPadding ->
+        when {
+            isPageLoading -> Box(Modifier.fillMaxSize().padding(innerPadding), Alignment.Center) {
+                CircularProgressIndicator(color = Color(0xFF2E7D32))
             }
-
-            when (quranTab) {
-
-                // ── Tab Surat ────────────────────────────────────────────────
-                0 -> Column(modifier = Modifier.fillMaxSize()) {
-                    OutlinedTextField(
-                        value = surahSearchQuery, onValueChange = { surahSearchQuery = it },
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
-                        placeholder = { Text("Cari surat, nomor, atau 'Juz 5'", color = textMutC()) },
-                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = textSecC()) },
-                        trailingIcon = { if (surahSearchQuery.isNotEmpty()) IconButton(onClick = { surahSearchQuery = "" }) { Text("✕", color = textSecC(), fontSize = 14.sp) } },
-                        singleLine = true, shape = RoundedCornerShape(14.dp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = Color(0xFF2E7D32),
-                            unfocusedBorderColor = borderC(),
-                            focusedContainerColor = cardBg(),
-                            unfocusedContainerColor = cardBg(),
-                            focusedTextColor = textPrimC(),
-                            unfocusedTextColor = textPrimC()
-                        )
-                    )
-                    when {
-                        surahList.isEmpty() -> Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Gagal memuat daftar surat.", color = Color(0xFF757575)) }
-                        filteredSurahList.isEmpty() -> Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text("🔍", fontSize = 36.sp); Spacer(modifier = Modifier.height(12.dp))
-                                Text("\"$surahSearchQuery\" tidak ditemukan", color = Color(0xFF9E9E9E), fontSize = 14.sp, textAlign = TextAlign.Center)
-                            }
-                        }
-                        else -> {
-                            if (surahSearchQuery.isNotBlank())
-                                Text("${filteredSurahList.size} surat ditemukan", fontSize = 12.sp, color = Color(0xFF9E9E9E),
-                                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp))
-                            val showSeparator = surahSearchQuery.isBlank()
-                            LazyColumn(modifier = Modifier.weight(1f),
-                                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 20.dp)
-                            ) {
-                                filteredSurahList.forEach { surah ->
-                                    // Tampilkan pembatas juz sebelum surah yang menjadi awal juz baru
-                                    if (showSeparator && SURAH_JUZ_START.containsKey(surah.id)) {
-                                        val juzNum = SURAH_JUZ_START[surah.id]!!
-                                        item(key = "juz_sep_$juzNum") { JuzSeparator(juzNum) }
-                                    }
-                                    item(key = "surah_${surah.id}") {
-                                        ChapterItem(surah) { selectedSurah = surah }
-                                        Spacer(modifier = Modifier.height(10.dp))
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // ── Tab Halaman ──────────────────────────────────────────────
-                1 -> Column(modifier = Modifier.fillMaxSize()) {
-                    OutlinedTextField(
-                        value = pageSearchQuery, onValueChange = { pageSearchQuery = it.take(10) },
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
-                        placeholder = { Text("Cari halaman (1–604) atau 'Juz 5'", color = textMutC()) },
-                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = textSecC()) },
-                        trailingIcon = { if (pageSearchQuery.isNotEmpty()) IconButton(onClick = { pageSearchQuery = "" }) { Text("✕", color = textSecC(), fontSize = 14.sp) } },
-                        singleLine = true, shape = RoundedCornerShape(14.dp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = Color(0xFF2E7D32),
-                            unfocusedBorderColor = borderC(),
-                            focusedContainerColor = cardBg(),
-                            unfocusedContainerColor = cardBg(),
-                            focusedTextColor = textPrimC(),
-                            unfocusedTextColor = textPrimC()
-                        )
-                    )
-                    when {
-                        pageSearchQuery.isNotBlank() && filteredPages.size == 1 -> {
-                            val exactPage = filteredPages.first()
-                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Text("📖", fontSize = 40.sp); Spacer(modifier = Modifier.height(12.dp))
-                                    Text("Halaman $exactPage", fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                                    Text("Juz ${getJuzOfPage(exactPage)}", fontSize = 13.sp, color = Color(0xFF2E7D32))
-                                    Spacer(modifier = Modifier.height(16.dp))
-                                    Button(onClick = { selectedPage = exactPage },
-                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)),
-                                        shape = RoundedCornerShape(12.dp)) { Text("Buka Halaman $exactPage", color = Color.White) }
-                                }
-                            }
-                        }
-                        filteredPages.isEmpty() -> Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text("🔍", fontSize = 36.sp); Spacer(modifier = Modifier.height(12.dp))
-                                Text("\"$pageSearchQuery\" tidak ditemukan\n(halaman 1–604 atau 'Juz 1–30')",
-                                    color = Color(0xFF9E9E9E), fontSize = 14.sp, textAlign = TextAlign.Center)
-                            }
-                        }
-                        else -> {
-                            if (pageSearchQuery.isNotBlank())
-                                Text("${filteredPages.size} halaman ditemukan", fontSize = 12.sp, color = Color(0xFF9E9E9E),
-                                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 2.dp))
-                            val showSeparator = pageSearchQuery.isBlank()
-                            LazyVerticalGrid(
-                                columns = GridCells.Fixed(4),
-                                modifier = Modifier.weight(1f),
-                                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 20.dp),
-                                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                                verticalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                var lastJuzInGrid = -1
-                                filteredPages.forEach { pageNum ->
-                                    val pageJuz = getJuzOfPage(pageNum)
-                                    if (showSeparator && pageJuz != lastJuzInGrid && JUZ_PAGE_START.contains(pageNum)) {
-                                        lastJuzInGrid = pageJuz
-                                        item(key = "juz_page_sep_$pageJuz", span = { GridItemSpan(4) }) {
-                                            JuzSeparator(pageJuz)
-                                        }
-                                    }
-                                    item(key = "page_$pageNum") {
-                                        Card(
-                                            modifier = Modifier.fillMaxWidth().aspectRatio(1f).clickable { selectedPage = pageNum },
-                                            colors = CardDefaults.cardColors(containerColor = cardBg()),
-                                            shape = RoundedCornerShape(12.dp),
-                                            border = BorderStroke(1.dp, borderC())
-                                        ) {
-                                            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-                                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                                    Text("Hal", fontSize = 10.sp, color = Color.Gray)
-                                                    Text(pageNum.toString(), fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32))
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                // ── Tab Juz ──────────────────────────────────────────────────
-                else -> Column(modifier = Modifier.fillMaxSize()) {
-                    OutlinedTextField(
-                        value = juzSearchQuery,
-                        onValueChange = { juzSearchQuery = it.filter { c -> c.isDigit() }.take(2) },
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
-                        placeholder = { Text("Cari nomor juz (1–30)", color = textMutC()) },
-                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = textSecC()) },
-                        trailingIcon = { if (juzSearchQuery.isNotEmpty()) IconButton(onClick = { juzSearchQuery = "" }) { Text("✕", color = textSecC(), fontSize = 14.sp) } },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        shape = RoundedCornerShape(14.dp),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = Color(0xFF2E7D32),
-                            unfocusedBorderColor = borderC(),
-                            focusedContainerColor = cardBg(),
-                            unfocusedContainerColor = cardBg(),
-                            focusedTextColor = textPrimC(),
-                            unfocusedTextColor = textPrimC()
-                        )
-                    )
-                    when {
-                        filteredJuzList.isEmpty() -> Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text("🔍", fontSize = 36.sp); Spacer(modifier = Modifier.height(12.dp))
-                                Text("Juz \"$juzSearchQuery\" tidak ditemukan (1–30)", color = Color(0xFF9E9E9E), fontSize = 14.sp)
-                            }
-                        }
-                        filteredJuzList.size == 1 -> {
-                            val juzNum = filteredJuzList.first()
-                            val startPage = JUZ_PAGE_START[juzNum - 1]
-                            val endPage = if (juzNum < 30) JUZ_PAGE_START[juzNum] - 1 else 604
-                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Text("📖", fontSize = 48.sp); Spacer(modifier = Modifier.height(8.dp))
-                                    Text("Juz $juzNum", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Black)
-                                    Text("Halaman $startPage – $endPage", color = Color(0xFF757575), fontSize = 14.sp)
-                                    Spacer(modifier = Modifier.height(20.dp))
-                                    Button(onClick = { selectedPage = startPage },
-                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)),
-                                        shape = RoundedCornerShape(12.dp),
-                                        modifier = Modifier.fillMaxWidth(0.7f).height(50.dp)) {
-                                        Text("Buka Juz $juzNum", color = Color.White, fontWeight = FontWeight.Bold)
-                                    }
-                                }
-                            }
-                        }
-                        else -> LazyColumn(modifier = Modifier.weight(1f),
-                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
-                        ) {
-                            items(filteredJuzList, key = { it }) { juzNum ->
-                                JuzCard(juzNum = juzNum, onOpenPage = { selectedPage = it })
-                            }
-                        }
-                    }
+            pageError -> Box(Modifier.fillMaxSize().padding(innerPadding), Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("⚠️", fontSize = 40.sp)
+                    Spacer(Modifier.height(8.dp))
+                    Text("Gagal memuat halaman $page.", color = textSecC(), textAlign = TextAlign.Center)
                 }
             }
+            pageVerses.isEmpty() -> Box(Modifier.fillMaxSize().padding(innerPadding), Alignment.Center) {
+                Text("Tidak ada ayat.", color = textSecC())
+            }
+            else -> {
+                // State untuk swipe gesture
+                var swipeDelta by remember { mutableStateOf(0f) }
+                val swipeThreshold = 80f  // minimum px untuk trigger nav
+
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(innerPadding)
+                        .pointerInput(page) {
+                            detectHorizontalDragGestures(
+                                onDragEnd = {
+                                    when {
+                                        // Geser kanan → halaman sebelumnya (seperti Quran fisik: balik ke kanan)
+                                        swipeDelta > swipeThreshold && page > 1   -> onNav(page - 1)
+                                        // Geser kiri → halaman berikutnya
+                                        swipeDelta < -swipeThreshold && page < 604 -> onNav(page + 1)
+                                    }
+                                    swipeDelta = 0f
+                                },
+                                onDragCancel = { swipeDelta = 0f },
+                                onHorizontalDrag = { _, dragAmount ->
+                                    swipeDelta += dragAmount
+                                }
+                            )
+                        },
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(24.dp)
+                ) {
+                    items(pageVerses, key = { "${it.surahId}_${it.ayahId}" }) { verse ->
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            val hasHighlight = matchedPositions.any { (sid, aid, _) -> sid == verse.surahId && aid == verse.ayahId }
+                            if (!hasHighlight) {
+                                Text(verse.text,
+                                    style = MaterialTheme.typography.headlineMedium.copy(lineHeight = 50.sp),
+                                    textAlign = TextAlign.Right, modifier = Modifier.fillMaxWidth(),
+                                    color = textPrimC())
+                            } else {
+                                val annotated = buildAnnotatedString {
+                                    verse.text.split(Regex("\\s+")).forEachIndexed { wIdx, word ->
+                                        val matched = matchedPositions.contains(Triple(verse.surahId, verse.ayahId, wIdx))
+                                        withStyle(SpanStyle(color = if (matched) Color(0xFF2E7D32) else textPrimC())) {
+                                            append(word)
+                                        }
+                                        append(" ")
+                                    }
+                                }
+                                Text(annotated,
+                                    style = MaterialTheme.typography.headlineMedium.copy(
+                                        lineHeight = 50.sp, textAlign = TextAlign.Right),
+                                    modifier = Modifier.fillMaxWidth())
+                            }
+                            Spacer(Modifier.height(8.dp))
+                            Surface(color = greenBgC(), shape = CircleShape) {
+                                Text("${verse.surahName} : ${verse.ayahId}",
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+                                    style = MaterialTheme.typography.labelSmall, color = Color(0xFF2E7D32))
+                            }
+                            HorizontalDivider(modifier = Modifier.padding(top = 16.dp), color = dividerC())
+                        }
+                    }
+                }   // end LazyColumn
+            }   // end else (swipe block)
         }
     }
 }
@@ -1144,6 +1494,775 @@ fun ChapterItem(chapter: Chapter, onClick: () -> Unit) {
     }
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// SAMBUNG AYAT SCREEN
+// ═══════════════════════════════════════════════════════════════════════════
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun SambungAyatScreen(
+    dbHelper     : QuranDatabaseHelper,
+    onBack       : () -> Unit,
+    onHideNavBar : (Boolean) -> Unit = {}
+) {
+    var selectedSurah by remember { mutableStateOf<Chapter?>(null) }
+    var quizState     by remember { mutableStateOf<SambungQuizState?>(null) }
+
+    // Sembunyikan navbar saat kuis aktif
+    LaunchedEffect(quizState) {
+        onHideNavBar(quizState != null)
+    }
+
+    when {
+        quizState != null -> SambungQuizPlay(
+            state    = quizState!!,
+            dbHelper = dbHelper,
+            onBack   = { quizState = null },
+            onFinish = { quizState = null; selectedSurah = null }
+        )
+        selectedSurah != null -> SambungSurahConfig(
+            surah    = selectedSurah!!,
+            dbHelper = dbHelper,
+            onBack   = { selectedSurah = null },
+            onStart  = { state -> quizState = state }
+        )
+        else -> SambungSurahPicker(
+            dbHelper      = dbHelper,
+            onBack        = onBack,
+            onSelectSurah = { selectedSurah = it }
+        )
+    }
+}
+
+// ── Data class untuk state kuis ──────────────────────────────────────────
+
+data class SambungQuizState(
+    val surahName : String,
+    val verses    : List<String>,   // daftar ayat yang akan dikuis
+    val totalQ    : Int             // total pertanyaan
+)
+
+// ── Picker surat ─────────────────────────────────────────────────────────
+
+@Composable
+fun SambungSurahPicker(
+    dbHelper      : QuranDatabaseHelper,
+    onBack        : () -> Unit,
+    onSelectSurah : (Chapter) -> Unit
+) {
+    var surahList by remember { mutableStateOf<List<Chapter>>(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }
+    var searchQuery by remember { mutableStateOf("") }
+
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) {
+            val list = try { dbHelper.getAllChapters() } catch (e: Exception) { emptyList() }
+            withContext(Dispatchers.Main) { surahList = list; isLoading = false }
+        }
+    }
+
+    val filtered = remember(surahList, searchQuery) {
+        if (searchQuery.isBlank()) surahList
+        else {
+            val q = searchQuery.trim().lowercase()
+            surahList.filter { ch ->
+                ch.name.contains(q, ignoreCase = true) ||
+                        ch.nameLatin.contains(q, ignoreCase = true) ||
+                        ch.id.toString() == q
+            }
+        }
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        // Header
+        Row(modifier = Modifier.fillMaxWidth().padding(start = 4.dp, top = 12.dp, end = 16.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onBack) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Kembali", tint = textPrimC())
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text("Sambung Ayat", style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold, color = textPrimC())
+                Text("Pilih surat yang ingin diuji", style = MaterialTheme.typography.bodySmall,
+                    color = textSecC())
+            }
+        }
+        HorizontalDivider(color = dividerC())
+
+        if (isLoading) {
+            Box(Modifier.fillMaxSize(), Alignment.Center) {
+                CircularProgressIndicator(color = Color(0xFF2E7D32))
+            }
+        } else {
+            OutlinedTextField(
+                value = searchQuery, onValueChange = { searchQuery = it },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+                placeholder = { Text("Cari surat...", color = textMutC()) },
+                leadingIcon = { Icon(Icons.Default.Search, null, tint = textSecC()) },
+                trailingIcon = { if (searchQuery.isNotEmpty()) IconButton({ searchQuery = "" }) { Text("✕", color = textSecC(), fontSize = 14.sp) } },
+                singleLine = true, shape = RoundedCornerShape(14.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = Color(0xFF2E7D32), unfocusedBorderColor = borderC(),
+                    focusedContainerColor = cardBg(), unfocusedContainerColor = cardBg(),
+                    focusedTextColor = textPrimC(), unfocusedTextColor = textPrimC())
+            )
+            LazyColumn(
+                modifier = Modifier.weight(1f),
+                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 20.dp)
+            ) {
+                val showSep = searchQuery.isBlank()
+                filtered.forEach { surah ->
+                    if (showSep && SURAH_JUZ_START.containsKey(surah.id)) {
+                        val j = SURAH_JUZ_START[surah.id]!!
+                        item(key = "sep_$j") { JuzSeparator(j) }
+                    }
+                    item(key = "s_${surah.id}") {
+                        SambungSurahItem(surah = surah, onClick = { onSelectSurah(surah) })
+                        Spacer(Modifier.height(10.dp))
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun SambungSurahItem(surah: Chapter, onClick: () -> Unit) {
+    val juz       = remember(surah.id) { getJuzOfSurah(surah.id) }
+    val isLong    = surah.id <= 77       // Juz 1–25 → surat panjang
+    val verseCount = remember(surah.id) {
+        surah.content.split(Regex("\\[\\d+\\]")).count { it.isNotBlank() }
+    }
+    Card(
+        modifier = Modifier.fillMaxWidth().clickable { onClick() },
+        colors   = CardDefaults.cardColors(containerColor = cardBg()),
+        shape    = RoundedCornerShape(16.dp),
+        elevation = CardDefaults.cardElevation(1.dp)
+    ) {
+        Row(modifier = Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(modifier = Modifier.size(40.dp).background(
+                if (isLong) Color(0xFFE8F5E9) else Color(0xFFFFF3E0), CircleShape),
+                contentAlignment = Alignment.Center) {
+                Text(surah.id.toString(), fontWeight = FontWeight.Bold,
+                    color = if (isLong) Color(0xFF2E7D32) else Color(0xFFE65100), fontSize = 13.sp)
+            }
+            Spacer(Modifier.width(14.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(surah.name, style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold, color = textPrimC())
+                if (surah.nameLatin.isNotBlank())
+                    Text(surah.nameLatin, style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF2E7D32))
+                Text("$verseCount ayat  •  Juz $juz", style = MaterialTheme.typography.bodySmall,
+                    color = textSecC())
+            }
+            Surface(color = if (isLong) Color(0xFFE8F5E9) else Color(0xFFFFF3E0),
+                shape = RoundedCornerShape(8.dp)) {
+                Text(
+                    if (isLong) "Pilih ayat" else "Acak Juz 30",
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (isLong) Color(0xFF2E7D32) else Color(0xFFE65100),
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+    }
+}
+
+// ── Konfigurasi kuis (untuk surat panjang Juz 1–25) ──────────────────────
+
+@Composable
+fun SambungSurahConfig(
+    surah    : Chapter,
+    dbHelper : QuranDatabaseHelper,
+    onBack   : () -> Unit,
+    onStart  : (SambungQuizState) -> Unit
+) {
+    val isLong     = surah.id <= 77
+    val verseCount = remember(surah.id) {
+        surah.content.split(Regex("\\[\\d+\\]")).count { it.isNotBlank() }
+    }
+
+    // Untuk surat pendek (Juz 26-30) langsung generate 10 soal acak
+    if (!isLong) {
+        var verses by remember { mutableStateOf<List<String>>(emptyList()) }
+        var loading by remember { mutableStateOf(true) }
+        LaunchedEffect(Unit) {
+            withContext(Dispatchers.IO) {
+                val (_, v) = dbHelper.getQuizVerses(surah.id, maxCount = 10)
+                withContext(Dispatchers.Main) { verses = v; loading = false }
+            }
+        }
+        if (loading) {
+            Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator(color = Color(0xFF2E7D32)) }
+        } else {
+            // Auto-start
+            LaunchedEffect(verses) {
+                if (verses.isNotEmpty()) {
+                    onStart(SambungQuizState(surah.name, verses, verses.size))
+                }
+            }
+            Box(Modifier.fillMaxSize(), Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    CircularProgressIndicator(color = Color(0xFF2E7D32))
+                    Spacer(Modifier.height(12.dp))
+                    Text("Menyiapkan soal...", color = textSecC())
+                }
+            }
+        }
+        return
+    }
+
+    // Surat panjang → tampilkan form konfigurasi
+    var modeTab       by remember { mutableIntStateOf(0) }  // 0=per ayat, 1=per halaman
+    var fromInput     by remember { mutableStateOf("1") }
+    var toInput       by remember { mutableStateOf(verseCount.toString()) }
+    var jumlahSoal    by remember { mutableIntStateOf(10) }
+    var errorMsg      by remember { mutableStateOf("") }
+
+    // Halaman surah
+    val surahStartPage = remember(surah.id) {
+        // Estimasi halaman awal surah berdasarkan DB (sederhana)
+        (surah.id * 1).coerceIn(1, 604)
+    }
+
+    Column(modifier = Modifier
+        .fillMaxSize()
+        .verticalScroll(rememberScrollState())
+        .padding(horizontal = 20.dp)
+    ) {
+        Row(modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onBack) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = textPrimC())
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(surah.name, style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold, color = textPrimC())
+                if (surah.nameLatin.isNotBlank())
+                    Text(surah.nameLatin, style = MaterialTheme.typography.bodySmall, color = Color(0xFF2E7D32))
+            }
+        }
+        Spacer(Modifier.height(8.dp))
+        HorizontalDivider(color = dividerC())
+        Spacer(Modifier.height(24.dp))
+
+        Text("⚙️  Pengaturan Kuis", style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold, color = textPrimC())
+        Spacer(Modifier.height(16.dp))
+
+        // Mode: per ayat atau per halaman
+        Text("Tentukan range berdasarkan:", style = MaterialTheme.typography.bodyMedium,
+            color = textSecC())
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            listOf("Nomor Ayat", "Nomor Halaman").forEachIndexed { idx, label ->
+                val sel = modeTab == idx
+                Surface(
+                    onClick = { modeTab = idx; errorMsg = "" },
+                    shape = RoundedCornerShape(12.dp),
+                    color = if (sel) Color(0xFF2E7D32) else cardBg(),
+                    border = BorderStroke(1.dp, if (sel) Color(0xFF2E7D32) else borderC()),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(label, modifier = Modifier.padding(12.dp),
+                        textAlign = TextAlign.Center, fontWeight = FontWeight.Bold,
+                        color = if (sel) Color.White else textPrimC(),
+                        style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+        }
+
+        Spacer(Modifier.height(20.dp))
+        val rangeLabel = if (modeTab == 0) "ayat" else "halaman"
+        val rangeMax   = if (modeTab == 0) verseCount else 604
+
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            OutlinedTextField(
+                value = fromInput, onValueChange = { fromInput = it.filter { c -> c.isDigit() }.take(4); errorMsg = "" },
+                label = { Text("Dari $rangeLabel", color = textSecC()) },
+                singleLine = true,
+                modifier = Modifier.weight(1f),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = Color(0xFF2E7D32), unfocusedBorderColor = borderC(),
+                    focusedContainerColor = cardBg(), unfocusedContainerColor = cardBg(),
+                    focusedTextColor = textPrimC(), unfocusedTextColor = textPrimC(),
+                    focusedLabelColor = Color(0xFF2E7D32))
+            )
+            OutlinedTextField(
+                value = toInput, onValueChange = { toInput = it.filter { c -> c.isDigit() }.take(4); errorMsg = "" },
+                label = { Text("Sampai $rangeLabel", color = textSecC()) },
+                singleLine = true,
+                modifier = Modifier.weight(1f),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = Color(0xFF2E7D32), unfocusedBorderColor = borderC(),
+                    focusedContainerColor = cardBg(), unfocusedContainerColor = cardBg(),
+                    focusedTextColor = textPrimC(), unfocusedTextColor = textPrimC(),
+                    focusedLabelColor = Color(0xFF2E7D32))
+            )
+        }
+        Spacer(Modifier.height(6.dp))
+        Text("Range: 1 – $rangeMax $rangeLabel",
+            style = MaterialTheme.typography.bodySmall, color = textMutC())
+
+        if (errorMsg.isNotEmpty()) {
+            Spacer(Modifier.height(6.dp))
+            Text(errorMsg, style = MaterialTheme.typography.bodySmall, color = Color(0xFFE53935))
+        }
+
+        Spacer(Modifier.height(20.dp))
+        // Hitung maksimal soal yang bisa dibuat dari range yang dipilih
+        val fromVal  = fromInput.toIntOrNull()?.coerceIn(1, rangeMax) ?: 1
+        val toVal    = toInput.toIntOrNull()?.coerceIn(fromVal, rangeMax) ?: rangeMax
+        val rangeSize = (toVal - fromVal + 1).coerceAtLeast(1)
+        // Pilihan jumlah soal: hanya tampilkan jika <= rangeSize
+        // Minimal 1 soal, maksimal rangeSize (capped di 20)
+        val maxSoal  = minOf(rangeSize, 20)
+        // Auto-clamp jumlahSoal jika range berubah membuat pilihan tidak valid
+        if (jumlahSoal > maxSoal) jumlahSoal = maxSoal
+
+        val soalOptions = listOf(5, 10, 15, 20).filter { it <= maxSoal }
+            .let { opts ->
+                // Selalu ada minimal 1 pilihan: nilai maxSoal itu sendiri
+                if (opts.isEmpty()) listOf(maxSoal)
+                else if (!opts.contains(maxSoal) && maxSoal < 20) opts + maxSoal
+                else opts
+            }.sorted()
+
+        Text("Jumlah soal:",
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Bold, color = textPrimC())
+        if (maxSoal < 20) {
+            Text("Maksimal $maxSoal soal untuk range ini",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color(0xFFE65100))
+        }
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            soalOptions.forEach { n ->
+                val sel = jumlahSoal == n
+                Surface(
+                    onClick = { jumlahSoal = n },
+                    shape = RoundedCornerShape(12.dp),
+                    color = if (sel) Color(0xFF2E7D32) else cardBg(),
+                    border = BorderStroke(1.dp, if (sel) Color(0xFF2E7D32) else borderC()),
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text("$n",
+                        modifier = Modifier.padding(vertical = 12.dp),
+                        textAlign = TextAlign.Center,
+                        fontWeight = FontWeight.Bold,
+                        color = if (sel) Color.White else textPrimC())
+                }
+            }
+        }
+
+        Spacer(Modifier.height(32.dp))
+        Button(
+            onClick = {
+                val from = fromInput.toIntOrNull() ?: 1
+                val to   = toInput.toIntOrNull()   ?: rangeMax
+                when {
+                    from < 1 || from > rangeMax ->
+                        errorMsg = "Dari $rangeLabel harus antara 1–$rangeMax"
+                    to < from ->
+                        errorMsg = "Sampai $rangeLabel harus ≥ dari $rangeLabel"
+                    to > rangeMax ->
+                        errorMsg = "Sampai $rangeLabel maksimal $rangeMax"
+                    else -> {
+                        // Konversi halaman → ayat jika mode halaman
+                        // Untuk mode halaman, gunakan fromAyah=1 toAyah=verseCount
+                        // dan filter berdasarkan page range (simplified)
+                        val fromAyah = if (modeTab == 0) from else 1
+                        val toAyah   = if (modeTab == 0) to   else verseCount
+                        // Load async via coroutine di scope composable tidak bisa langsung,
+                        // jadi kita kirim parameter ke QuizPlay yang akan load sendiri
+                        onStart(SambungQuizState(
+                            surahName = surah.name,
+                            verses    = emptyList(),  // diisi oleh QuizPlay
+                            totalQ    = jumlahSoal
+                        ).copy(
+                            // Encode config ke verses sebagai marker
+                            verses = listOf(
+                                "__CONFIG__",
+                                surah.id.toString(),
+                                fromAyah.toString(),
+                                toAyah.toString(),
+                                jumlahSoal.toString()
+                            )
+                        ))
+                    }
+                }
+            },
+            modifier = Modifier.fillMaxWidth().height(56.dp),
+            shape = RoundedCornerShape(16.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32))
+        ) {
+            Text("Mulai Kuis $jumlahSoal Soal", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+        }
+        Spacer(Modifier.height(24.dp))
+    }
+}
+
+// ── Quiz Play ─────────────────────────────────────────────────────────────
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun SambungQuizPlay(
+    state    : SambungQuizState,
+    dbHelper : QuranDatabaseHelper,
+    onBack   : () -> Unit,
+    onFinish : () -> Unit = onBack   // default: sama dengan onBack jika tidak diisi
+) {
+    // Jika verses berisi config marker, load dulu
+    var verses   by remember { mutableStateOf(state.verses) }
+    var isLoading by remember { mutableStateOf(verses.firstOrNull() == "__CONFIG__") }
+    var totalQ   by remember { mutableIntStateOf(state.totalQ) }
+
+    LaunchedEffect(Unit) {
+        if (verses.firstOrNull() == "__CONFIG__") {
+            val surahId  = verses.getOrNull(1)?.toIntOrNull() ?: 1
+            val fromAyah = verses.getOrNull(2)?.toIntOrNull() ?: 1
+            val toAyah   = verses.getOrNull(3)?.toIntOrNull() ?: Int.MAX_VALUE
+            val count    = verses.getOrNull(4)?.toIntOrNull() ?: 10
+            withContext(Dispatchers.IO) {
+                val (_, v) = dbHelper.getQuizVerses(surahId, fromAyah, toAyah, count)
+                withContext(Dispatchers.Main) {
+                    verses   = v
+                    totalQ   = count
+                    isLoading = false
+                }
+            }
+        }
+    }
+
+    if (isLoading) {
+        Box(Modifier.fillMaxSize(), Alignment.Center) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                CircularProgressIndicator(color = Color(0xFF2E7D32))
+                Spacer(Modifier.height(12.dp))
+                Text("Menyiapkan soal...", color = textSecC())
+            }
+        }
+        return
+    }
+
+    if (verses.isEmpty()) {
+        Box(Modifier.fillMaxSize(), Alignment.Center) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("😔", fontSize = 48.sp)
+                Spacer(Modifier.height(12.dp))
+                Text("Tidak ada ayat cocok untuk kuis ini.", color = textSecC(), textAlign = TextAlign.Center)
+                Spacer(Modifier.height(16.dp))
+                Button(onClick = onBack, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32))) {
+                    Text("Kembali")
+                }
+            }
+        }
+        return
+    }
+
+    // ── State kuis ────────────────────────────────────────────────────────
+    var currentIdx   by remember { mutableIntStateOf(0) }
+    var score        by remember { mutableIntStateOf(0) }
+    var isFinished   by remember { mutableStateOf(false) }
+    var isSuccess    by remember { mutableStateOf(false) }
+    var isError      by remember { mutableStateOf(false) }
+    var showResult   by remember { mutableStateOf(false) }
+
+    val currentVerse = verses.getOrNull(currentIdx) ?: ""
+    val correctWords = remember(currentIdx) {
+        // Filter token yang mengandung minimal 1 huruf Arab (U+0621–U+06FF)
+        // Ini menghilangkan tanda waqf (ۗ ۖ ۚ ۛ) dan karakter non-huruf
+        // yang menjadi penyebab ghost block
+        currentVerse.split(Regex("\\s+"))
+            .map { it.trim() }
+            .filter { token ->
+                // Hanya huruf Arab asli — exclude harakat (U+064B-065F),
+                // tanda waqf (U+06D4-06ED), angka Arab, dan simbol non-huruf
+                token.any { c ->
+                    c.code in 0x0621..0x063A ||  // Huruf Arab dasar
+                            c.code in 0x0641..0x064A ||  // Huruf Arab lanjutan
+                            c.code in 0x0671..0x06D3     // Huruf Arab extended
+                }
+            }
+    }
+    val shuffledWords = remember(currentIdx) { correctWords.shuffled() }
+    val selectedWords = remember(currentIdx) { mutableStateListOf<String>() }
+    val availableWords = remember(currentIdx) {
+        mutableStateListOf<String>().apply { addAll(shuffledWords) }
+    }
+
+    // Auto-check saat semua kata sudah ditempatkan
+    val selectedSize = selectedWords.size
+    LaunchedEffect(selectedSize) {
+        if (selectedSize == correctWords.size && correctWords.isNotEmpty() && !isSuccess && !isError) {
+            delay(500)
+            if (selectedWords.size == correctWords.size) {
+                if (selectedWords.toList() == correctWords) {
+                    isSuccess = true
+                    score++
+                    delay(1200)
+                    if (currentIdx < verses.size - 1) {
+                        currentIdx++
+                        isSuccess = false
+                        isError   = false
+                    } else {
+                        isFinished = true
+                    }
+                } else {
+                    isError = true
+                }
+            }
+        }
+    }
+
+    if (isFinished) {
+        // Layar hasil akhir
+        Box(modifier = Modifier.fillMaxSize().background(
+            if (score >= verses.size * 0.7) Color(0xFF2E7D32) else Color(0xFF1565C0)
+        ), contentAlignment = Alignment.Center) {
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                modifier = Modifier.padding(32.dp)
+            ) {
+                Text(if (score >= verses.size * 0.7) "🌟" else "📚", fontSize = 72.sp)
+                Text(
+                    if (score >= verses.size * 0.7) "Luar Biasa!" else "Terus Berlatih!",
+                    style = MaterialTheme.typography.headlineLarge,
+                    fontWeight = FontWeight.Black, color = Color.White
+                )
+                Text("$score / ${verses.size} ayat benar",
+                    style = MaterialTheme.typography.titleLarge, color = Color.White.copy(0.9f))
+                Text("Surah ${state.surahName}",
+                    style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(0.7f))
+                Spacer(Modifier.height(16.dp))
+                Button(
+                    onClick = onFinish,
+                    colors = ButtonDefaults.buttonColors(containerColor = Color.White),
+                    modifier = Modifier.fillMaxWidth().height(52.dp),
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Text("Selesai", fontWeight = FontWeight.Bold,
+                        color = if (score >= verses.size * 0.7) Color(0xFF2E7D32) else Color(0xFF1565C0))
+                }
+            }
+        }
+        return
+    }
+
+    // ── UI kuis ───────────────────────────────────────────────────────────
+    Box(modifier = Modifier.fillMaxSize()) {
+        Column(modifier = Modifier.fillMaxSize().padding(20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally) {
+
+            // Header
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = textPrimC())
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(state.surahName, fontWeight = FontWeight.Bold, color = textPrimC())
+                    Text("Soal ${currentIdx + 1} dari ${verses.size}",
+                        style = MaterialTheme.typography.bodySmall, color = textSecC())
+                }
+                Surface(color = greenBgC(), shape = RoundedCornerShape(12.dp)) {
+                    Text("⭐ $score",
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32))
+                }
+            }
+
+            Spacer(Modifier.height(12.dp))
+            LinearProgressIndicator(
+                progress = { (currentIdx.toFloat() + (if (isSuccess) 1f else 0f)) / verses.size },
+                modifier = Modifier.fillMaxWidth().height(10.dp).clip(RoundedCornerShape(5.dp)),
+                color = Color(0xFF2E7D32),
+                trackColor = if (LocalIsDarkMode.current) Color(0xFF334155) else Color(0xFFE5E5E5)
+            )
+
+            Spacer(Modifier.height(24.dp))
+            CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                Text("Susunlah potongan ayat ini:",
+                    style = MaterialTheme.typography.bodyLarge, color = textSecC())
+            }
+            Spacer(Modifier.height(16.dp))
+
+            // ── Area Arab: seluruh wrapper RTL ───────────────────────────
+            // RTL pada parent membuat FlowRow mengalir kanan→kiri di semua baris
+            // Arrangement.Start dalam RTL = mulai dari kanan (bukan Center
+            // yang membuat tiap baris dicentrer sendiri dan tidak nyambung)
+            CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
+
+                // Kotak jawaban
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 120.dp)
+                        .border(2.dp,
+                            when {
+                                isSuccess -> Color(0xFF2E7D32)
+                                isError   -> Color(0xFFE53935)
+                                else      -> borderC()
+                            },
+                            RoundedCornerShape(16.dp))
+                        .background(
+                            when {
+                                isSuccess -> Color(0xFFE8F5E9)
+                                isError   -> Color(0xFFFFEBEE)
+                                else      -> cardBg()
+                            },
+                            RoundedCornerShape(16.dp))
+                        .padding(12.dp),
+                    contentAlignment = Alignment.TopStart
+                ) {
+                    if (selectedWords.isEmpty()) {
+                        CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                            Text(
+                                "Ketuk kata di bawah untuk menyusun ayat",
+                                color = textMutC(), textAlign = TextAlign.Center,
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    } else {
+                        // Arrangement.Start dalam RTL = aliran kanan→kiri tiap baris
+                        // Tidak ada AnimatedVisibility di sini (menyebabkan ghost item)
+                        // Animasi sudah ada di SambungWordChip (scale bounce saat klik)
+                        FlowRow(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.Start,
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            selectedWords.forEachIndexed { idx, word ->
+                                if (word.any { c -> c.code in 0x0621..0x063A || c.code in 0x0641..0x064A || c.code in 0x0671..0x06D3 }) {
+                                    SambungWordChip(
+                                        word = word,
+                                        isPrimary = true,
+                                        enabled = !isSuccess
+                                    ) {
+                                        if (!isSuccess) {
+                                            selectedWords.removeAt(idx)
+                                            availableWords.add(word)
+                                            isError = false
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Spacer(Modifier.height(8.dp))
+
+                // Feedback — balik LTR agar teks Latin terbaca benar
+                AnimatedVisibility(visible = isSuccess || isError) {
+                    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                        Text(
+                            if (isSuccess) "✅ Benar! Lanjut..." else "❌ Belum tepat, coba lagi",
+                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                            color = if (isSuccess) Color(0xFF2E7D32) else Color(0xFFE53935),
+                            fontWeight = FontWeight.Bold,
+                            style = MaterialTheme.typography.bodyMedium,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+
+                Spacer(Modifier.weight(1f))
+
+                // Kata-kata pilihan — Center agar terlihat rapi di tengah
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    availableWords.forEach { word ->
+                        if (word.any { c -> c.code in 0x0621..0x063A || c.code in 0x0641..0x064A || c.code in 0x0671..0x06D3 }) {
+                            SambungWordChip(
+                                word = word,
+                                isPrimary = false,
+                                enabled = !isSuccess
+                            ) {
+                                if (!isSuccess) {
+                                    selectedWords.add(word)
+                                    availableWords.remove(word)
+                                    isError = false
+                                }
+                            }
+                        }
+                    }
+                }
+
+            } // end RTL
+
+            Spacer(Modifier.height(20.dp))
+
+            // Tombol reset jika salah
+            if (isError && !isSuccess) {
+                OutlinedButton(
+                    onClick = {
+                        val allWords = (selectedWords + availableWords).shuffled()
+                        selectedWords.clear()
+                        availableWords.clear()
+                        availableWords.addAll(allWords)
+                        isError = false
+                    },
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.5.dp, Color(0xFFE53935))
+                ) {
+                    Text("🔄 Susun Ulang", color = Color(0xFFE53935), fontWeight = FontWeight.Bold)
+                }
+                Spacer(Modifier.height(8.dp))
+            }
+        }
+    }
+}
+
+@Composable
+fun SambungWordChip(word: String, isPrimary: Boolean, enabled: Boolean, onClick: () -> Unit) {
+    val bg     = if (isPrimary) cardBg() else if (LocalIsDarkMode.current) Color(0xFF1E293B) else Color(0xFFF0F0F0)
+    val border = if (isPrimary) borderC() else Color.Transparent
+
+    // Animasi tekan: scale bounce saat diklik
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.88f else 1f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness    = Spring.StiffnessMediumLow
+        ),
+        label = "chipScale"
+    )
+
+    Surface(
+        onClick           = { if (enabled) onClick() },
+        color             = bg,
+        shape             = RoundedCornerShape(12.dp),
+        border            = BorderStroke(2.dp, border),
+        shadowElevation   = if (isPrimary) 2.dp else 0.dp,
+        interactionSource = interactionSource,
+        modifier          = Modifier
+            .padding(2.dp)
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+    ) {
+        Text(
+            text       = word,
+            modifier   = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
+            style      = MaterialTheme.typography.headlineSmall,
+            fontWeight = FontWeight.Bold,
+            color      = textPrimC(),
+            textAlign  = TextAlign.Center
+        )
+    }
+}
+
 @Composable
 fun BerandaScreen(
     remainingTimeMillis: Long,
@@ -1178,10 +2297,9 @@ fun BerandaScreen(
             }
         }
     }
-    // Poll ulang setiap 10 detik agar langsung update setelah sesi ngaji selesai
     LaunchedEffect(Unit) {
         while (true) {
-            delay(10_000)
+            delay(30_000)
             withContext(Dispatchers.IO) {
                 val lastDate = sharedPref.getString("last_verse_date", "") ?: ""
                 val tv = sharedPref.getInt("total_verses", 0)

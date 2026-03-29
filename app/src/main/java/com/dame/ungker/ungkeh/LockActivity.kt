@@ -276,6 +276,25 @@ class LockActivity : ComponentActivity() {
         val availableWords = remember(ayatTarget) { mutableStateListOf<String>().apply { addAll(shuffledWords) } }
         var isError by remember { mutableStateOf(false) }
 
+        // ── AUTO-CHECK: ketika semua kata sudah ditempatkan ─────────────────
+        // Cek setelah 600ms delay agar user sempat lihat progress bar penuh
+        val selectedSize = selectedWords.size
+        LaunchedEffect(selectedSize) {
+            if (selectedSize == correctWords.size && correctWords.isNotEmpty() && !isSuccess) {
+                delay(600)
+                // Guard ulang setelah delay — user mungkin sudah cabut satu kata
+                if (selectedWords.size == correctWords.size) {
+                    if (selectedWords.toList() == correctWords) {
+                        isSuccess = true
+                        handleGameSuccess(context, isGameMode = true)
+                    } else {
+                        isError = true
+                        Toast.makeText(context, "Susunan masih salah, coba lagi!", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        }
+
         Box(modifier = Modifier.fillMaxSize()) {
             if (showBackButton) {
                 IconButton(
@@ -611,14 +630,14 @@ class LockActivity : ComponentActivity() {
 
             // ══════════════════════════════════════════════════════════════
             // THRESHOLD DINAMIS BERDASARKAN PANJANG KATA
-            // Kata panjang lebih ketat → lebih sulit di-cheat
+            // SUPER LENIENT untuk STT Arabic yang tidak akurat
             // ══════════════════════════════════════════════════════════════
             fun matchThreshold(targetLen: Int): Float = when {
-                targetLen <= 2 -> 0.50f  // هم، في، ما
-                targetLen <= 3 -> 0.65f  // يوم، كان، بل
-                targetLen <= 5 -> 0.68f  // تعرج، الف
-                targetLen <= 7 -> 0.70f  // اكثرهم، يسمعون
-                else           -> 0.72f  // الملايكه، مقداره +
+                targetLen <= 2 -> 0.20f  // هم، في، ما
+                targetLen <= 3 -> 0.25f  // يوم، كان، بل
+                targetLen <= 5 -> 0.30f  // تعرج، الف
+                targetLen <= 7 -> 0.30f  // اكثrmereka، يسمعون
+                else           -> 0.30f  // الملايكه، مقداره +
             }
 
             // ══════════════════════════════════════════════════════════════
@@ -668,14 +687,34 @@ class LockActivity : ComponentActivity() {
                 val userNorm = dbHelper.normalizeArabic(matchedWord)
                 if (targetNorm == userNorm)
                     return targetNorm.indices.associateWith { CharMatchStatus.EXACT }
-                return targetNorm.mapIndexed { i, targetChar ->
-                    i to when {
-                        userNorm.contains(targetChar) -> CharMatchStatus.EXACT
-                        PHONETIC_SUBSTITUTIONS[targetChar]
-                            ?.any { userNorm.contains(it) } == true -> CharMatchStatus.PHONETIC
-                        else -> CharMatchStatus.MISS
-                    }
-                }.toMap()
+
+                // Hitung similarity score untuk menentukan warna
+                val wordScore = maxOf(
+                    wordMatchScore(targetNorm, userNorm),
+                    wordMatchScore(stripPrefix(targetNorm), stripPrefix(userNorm))
+                )
+
+                // SUPER LENIENT: Jika similarity >= 30%, treat as exact match (hijau)
+                if (wordScore >= 0.30f) {
+                    return targetNorm.indices.associateWith { CharMatchStatus.EXACT }
+                }
+
+                // Jika similarity >= 10%, gunakan character-level matching (kuning)
+                if (wordScore >= 0.10f) {
+                    return targetNorm.mapIndexed { i, targetChar ->
+                        val isExact = userNorm.contains(targetChar)
+                        val isPhonetic = PHONETIC_SUBSTITUTIONS[targetChar]
+                            ?.any { userNorm.contains(it) } == true
+                        i to when {
+                            isExact -> CharMatchStatus.EXACT
+                            isPhonetic -> CharMatchStatus.PHONETIC
+                            else -> CharMatchStatus.MISS
+                        }
+                    }.toMap()
+                }
+
+                // Low similarity - semua karakter MISS (hitam)
+                return targetNorm.indices.associateWith { CharMatchStatus.MISS }
             }
 
             // ── Jalankan alignment ────────────────────────────────────────
@@ -745,24 +784,26 @@ class LockActivity : ComponentActivity() {
             val isShortVerse = totalWords in 2..4   // ayat pendek = 2–4 kata
 
             // ── Hitung kata yang benar ─────────────────────────────────────
-            // FIX BUG: hanya hitung EXACT dan PHONETIC, SKIP TIDAK dihitung!
+            // HITUNG: EXACT dan PHONETIC dianggap benar
+            // Threshold 40% - lebih lenient untuk STT Arabic
             val matchedWordCount = targetWords.indices.count { wordIdx ->
                 val tNorm   = dbHelper.normalizeArabic(targetWords[wordIdx])
                 val cmap    = charStatusMap[wordIdx] ?: emptyMap()
-                // Hanya EXACT & PHONETIC yang dianggap benar
+                // EXACT & PHONETIC dianggap benar
                 val correct = cmap.values.count {
                     it == CharMatchStatus.EXACT || it == CharMatchStatus.PHONETIC
                 }
-                tNorm.isNotEmpty() && correct.toFloat() / tNorm.length >= 0.6f
+                // Threshold 40% - realistis untuk STT
+                tNorm.isNotEmpty() && correct.toFloat() / tNorm.length >= 0.4f
             }
 
             // ── Threshold kelulusan ────────────────────────────────────────
-            // Ayat pendek (2-4 kata): minimal 2 kata benar sudah cukup
-            // Ayat panjang (5+ kata): minimal 70% kata benar
+            // Ayat pendek (2-4 kata): minimal 1 kata benar sudah cukup
+            // Ayat panjang (5+ kata): minimal 50% kata benar
             val lulus = if (isShortVerse) {
-                matchedWordCount >= 2
+                matchedWordCount >= 1
             } else {
-                matchedWordCount.toFloat() / totalWords >= 0.70f
+                matchedWordCount.toFloat() / totalWords >= 0.50f
             }
 
             // ── Mercy system untuk ayat pendek ────────────────────────────
@@ -796,44 +837,146 @@ class LockActivity : ComponentActivity() {
             }
         }
 
-        val restartRecognition = {
-            if (sedangMerekam) {
-                // Ganti Handler.postDelayed dengan coroutine agar tidak blocking dan bisa di-cancel
-                serviceScope.launch {
-                    delay(300)
-                    try { speechRecognizer.startListening(recIntent) } catch (e: Exception) {}
+        // ════════════════════════════════════════════════════════════════
+        // SISTEM HIGHLIGHTING REALTIME + AUTO-CHECK
+        //
+        // Arsitektur:
+        // • onPartialResults → highlighting REALTIME dengan debounce 80ms
+        //   Setiap partial datang (~300-500ms), kita debounce 80ms sebelum
+        //   memanggil updateProgress. Ini memberi realtime feel tanpa spam.
+        //
+        // • onResults → konfirmasi final, update akumulatif, lalu auto-check
+        //
+        // • updateProgress adalah fungsi BIASA (non-suspend) yang langsung
+        //   memutakhirkan charStatusMap di Main thread. Tidak ada async gap
+        //   sehingga checkAndMaybeAutoSubmit membaca state yang sudah benar.
+        //
+        // • Anti-flickering: merge logic di updateProgress sudah MONOTONE —
+        //   status EXACT/PHONETIC tidak bisa turun kembali ke MISS/SKIP.
+        //   Jadi tidak akan ada kata yang flip hijau-hitam-hijau.
+        // ════════════════════════════════════════════════════════════════
+
+        // Job untuk debounce partial results
+        var partialDebounceJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+        // Job untuk auto-check ketika semua kata hijau
+        var autoCheckJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+
+        // Transcript yang sudah dikonfirmasi (dari onResults)
+        // Partial transcript hanya untuk preview teks, bukan akumulasi permanen
+        var confirmedTranscript by remember { mutableStateOf("") }
+
+        // ── checkAndMaybeAutoSubmit ───────────────────────────────────────
+        // Dipanggil LANGSUNG (synchronous) setelah updateProgress() selesai.
+        // Karena updateProgress() memutakhirkan charStatusMap SEBELUM fungsi ini
+        // dipanggil, pembacaan charStatusMap di sini SELALU fresh.
+        fun checkAndMaybeAutoSubmit() {
+            if (!sedangMerekam) return
+            val targetWords = ayatAktif.split(" ").filter { it.isNotBlank() }
+            if (targetWords.isEmpty()) return
+            val allGreen = targetWords.indices.all { wordIdx ->
+                val tNorm = dbHelper.normalizeArabic(targetWords[wordIdx])
+                val cmap  = charStatusMap[wordIdx] ?: emptyMap()
+                if (tNorm.isEmpty()) return@all true
+                val matched = cmap.values.count {
+                    it == CharMatchStatus.EXACT || it == CharMatchStatus.PHONETIC
+                }
+                matched.toFloat() / tNorm.length >= 0.6f
+            }
+            if (allGreen) {
+                autoCheckJob?.cancel()
+                autoCheckJob = serviceScope.launch {
+                    delay(800)   // tahan 800ms agar user lihat semua kata hijau
+                    if (sedangMerekam) {
+                        sedangMerekam = false
+                        partialDebounceJob?.cancel()
+                        try { speechRecognizer.stopListening() } catch (e: Exception) {}
+                        performCheck()
+                    }
                 }
             }
         }
 
         val listener = object : RecognitionListener {
             override fun onReadyForSpeech(params: Bundle?) {
-                if (fullTranscript.isEmpty()) teksHasilSuara =
-                    "Mendengarkan ayat ${indexAyatSekarang + 1}..."
+                if (confirmedTranscript.isEmpty()) {
+                    teksHasilSuara = "Mendengarkan ayat ${indexAyatSekarang + 1}..."
+                }
             }
 
             override fun onError(error: Int) {
-                if (sedangMerekam) restartRecognition()
+                val ignorable = error == SpeechRecognizer.ERROR_NO_MATCH ||
+                        error == SpeechRecognizer.ERROR_CLIENT ||
+                        error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT
+                val delayMs = if (ignorable) 150L else 500L
+                if (sedangMerekam) {
+                    serviceScope.launch {
+                        delay(delayMs)
+                        if (sedangMerekam) {
+                            try { speechRecognizer.startListening(recIntent) } catch (e: Exception) {}
+                        }
+                    }
+                }
             }
 
             override fun onResults(results: Bundle?) {
                 val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                 if (!matches.isNullOrEmpty()) {
-                    val text = matches[0]
-                    fullTranscript = if (fullTranscript.isEmpty()) text else "$fullTranscript $text"
-                    teksHasilSuara = fullTranscript
-                    updateProgress(fullTranscript)
+                    val newText = matches[0]
+                    if (newText.isNotBlank()) {
+                        // Akumulasi: gabung confirmed + baru
+                        val combined = if (confirmedTranscript.isBlank()) newText
+                        else "$confirmedTranscript $newText"
+                        confirmedTranscript = combined
+                        fullTranscript      = combined
+                        teksHasilSuara      = combined
+
+                        // Cancel partial debounce yang mungkin masih pending
+                        partialDebounceJob?.cancel()
+
+                        // Update highlight LANGSUNG (non-async) lalu cek auto-submit
+                        updateProgress(combined)
+                        checkAndMaybeAutoSubmit()
+                    }
                 }
-                restartRecognition()
+                // Restart untuk sesi berikutnya
+                if (sedangMerekam) {
+                    serviceScope.launch {
+                        delay(200)
+                        if (sedangMerekam) {
+                            try { speechRecognizer.startListening(recIntent) } catch (e: Exception) {}
+                        }
+                    }
+                }
             }
 
             override fun onPartialResults(partialResults: Bundle?) {
+                // ── REALTIME HIGHLIGHTING via debounce 80ms ───────────────
+                // Partial result datang ~300-500ms sekali. Kita debounce 80ms:
+                // • Kalau partial baru datang sebelum 80ms → cancel yang lama
+                // • Kalau sudah 80ms tidak ada partial baru → jalankan update
+                // Hasilnya: highlighting terasa realtime (max lag 80ms) tapi
+                // tidak spam updateProgress setiap frame.
                 val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                if (!matches.isNullOrEmpty()) {
-                    val combined =
-                        if (fullTranscript.isEmpty()) matches[0] else "$fullTranscript ${matches[0]}"
-                    teksHasilSuara = combined
-                    updateProgress(combined)
+                if (matches.isNullOrEmpty() || !sedangMerekam) return
+                val partialText = matches[0]
+                if (partialText.isBlank()) return
+
+                // Update teks preview segera (tanpa debounce)
+                val previewText = if (confirmedTranscript.isBlank()) partialText
+                else "$confirmedTranscript $partialText"
+                teksHasilSuara = previewText
+
+                // Debounce highlighting 80ms
+                partialDebounceJob?.cancel()
+                partialDebounceJob = serviceScope.launch {
+                    delay(80)
+                    if (sedangMerekam) {
+                        // Gabung confirmed + partial untuk highlighting
+                        val transcriptForHighlight = if (confirmedTranscript.isBlank()) partialText
+                        else "$confirmedTranscript $partialText"
+                        updateProgress(transcriptForHighlight)
+                        checkAndMaybeAutoSubmit()
+                    }
                 }
             }
 
@@ -852,8 +995,11 @@ class LockActivity : ComponentActivity() {
         val permissionLauncher =
             rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
                 if (it) {
-                    fullTranscript = ""
-                    charStatusMap = emptyMap()
+                    fullTranscript      = ""
+                    confirmedTranscript = ""
+                    charStatusMap       = emptyMap()
+                    partialDebounceJob?.cancel()
+                    autoCheckJob?.cancel()
                     sedangMerekam = true
                     speechRecognizer.startListening(recIntent)
                 }
@@ -901,10 +1047,13 @@ class LockActivity : ComponentActivity() {
                     if (targetIndex < daftarAyatTarget.size) {
                         val currentVerse = daftarAyatTarget[targetIndex]
                         SideEffect {
-                            ayatAktif = currentVerse
-                            charStatusMap = emptyMap()
-                            fullTranscript = ""
-                            percobaan = 0
+                            ayatAktif           = currentVerse
+                            charStatusMap       = emptyMap()
+                            fullTranscript      = ""
+                            confirmedTranscript = ""
+                            percobaan           = 0
+                            partialDebounceJob?.cancel()
+                            autoCheckJob?.cancel()
                         }
                         Card(
                             modifier = Modifier.fillMaxWidth(),
@@ -935,12 +1084,15 @@ class LockActivity : ComponentActivity() {
                                         val matchedCount  = exactCount + phoneticCount
                                         val wordRatio     = if (wordNorm.isNotEmpty())
                                             matchedCount.toFloat() / wordNorm.length else 0f
-                                        val isSkipped     = skipCount > 0 && wordRatio < 0.6f
+                                        val isSkipped     = skipCount > 0 && wordRatio < 0.4f
                                         when {
-                                            wordRatio >= 0.6f ->
+                                            // Hijau: >= 40% karakter cocok
+                                            wordRatio >= 0.4f ->
                                                 withStyle(SpanStyle(color = Color(0xFF2E7D32))) { append(word) }
+                                            // Merah: dilewati/skipped
                                             isSkipped ->
                                                 withStyle(SpanStyle(color = Color(0xFFE53935))) { append(word) }
+                                            // Kuning: beberapa karakter cocok
                                             else -> word.forEachIndexed { charIdx, c ->
                                                 val status = cmap[charIdx] ?: CharMatchStatus.MISS
                                                 val color = when (status) {
@@ -1004,8 +1156,11 @@ class LockActivity : ComponentActivity() {
                                         context, Manifest.permission.RECORD_AUDIO
                                     ) == PackageManager.PERMISSION_GRANTED
                                 ) {
-                                    fullTranscript = ""
-                                    charStatusMap = emptyMap()
+                                    fullTranscript      = ""
+                                    confirmedTranscript = ""
+                                    charStatusMap       = emptyMap()
+                                    partialDebounceJob?.cancel()
+                                    autoCheckJob?.cancel()
                                     sedangMerekam = true
                                     speechRecognizer.startListening(recIntent)
                                 } else {
@@ -1013,6 +1168,8 @@ class LockActivity : ComponentActivity() {
                                 }
                             } else {
                                 sedangMerekam = false
+                                partialDebounceJob?.cancel()
+                                autoCheckJob?.cancel()
                                 speechRecognizer.stopListening()
                                 performCheck()
                             }

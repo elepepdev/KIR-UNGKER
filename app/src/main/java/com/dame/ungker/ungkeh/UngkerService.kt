@@ -33,29 +33,73 @@ class UngkerService : Service() {
         startForeground(1, notification)
 
         serviceScope.launch {
-            var lastCheckTime          = System.currentTimeMillis()
             var regularLockShownAt     = 0L   
             var sholatLockShownAt      = 0L   
             var cachedPrayerTimes: Map<String, Double>? = null
             var cacheHour = -1
+            var cachedBlockedApps: Set<String> = emptySet()
+            var lastBlockedAppsRefresh = 0L
+            var cachedRemainingCredit = 0L
+            var lastCreditRefresh = 0L
+            var cachedLocationLat = -6.2088
+            var cachedLocationLng = 106.8456
+            var cachedLocationTz = 7
+            var lastLocationRefresh = 0L
+            var cachedHasPledgeCredit = false
+            var lastPledgeRefresh = 0L
+            val BLOCKED_APPS_REFRESH_INTERVAL = 30_000L
+            val CREDIT_REFRESH_INTERVAL = 5_000L
+            val LOCATION_REFRESH_INTERVAL = 60_000L
+            val PLEDGE_REFRESH_INTERVAL = 10_000L
 
             while (true) {
                 val currentTime = System.currentTimeMillis()
-                val deltaTime   = currentTime - lastCheckTime
-                lastCheckTime   = currentTime
 
-                // ── Baca semua state dari IO thread ──────────────────────
-                val (foregroundApp, remainingCredit, blockedApps, lat, lng, tz) =
+                // ── Cache blocked apps - hanya refresh setiap 30 detik ─────────────
+                if (currentTime - lastBlockedAppsRefresh > BLOCKED_APPS_REFRESH_INTERVAL) {
                     withContext(Dispatchers.IO) {
-                        val sp      = getSharedPreferences("UNGKER_PREF", Context.MODE_PRIVATE)
-                        val credit  = sp.getLong("remaining_credit", 0L)
-                        val blocked = sp.getStringSet("blocked_apps", emptySet()) ?: emptySet()
-                        val fgApp   = getForegroundApp(this@UngkerService)
-                        val l       = sp.getFloat("sholat_lat", -6.2088f).toDouble()
-                        val g       = sp.getFloat("sholat_lng", 106.8456f).toDouble()
-                        val z       = sp.getInt("sholat_tz", 7)
-                        SixTuple(fgApp, credit, blocked, l, g, z)
+                        cachedBlockedApps = getSharedPreferences("UNGKER_PREF", Context.MODE_PRIVATE)
+                            .getStringSet("blocked_apps", emptySet()) ?: emptySet()
                     }
+                    lastBlockedAppsRefresh = currentTime
+                }
+
+                // ── Cache credit - refresh setiap 5 detik ───────────────────────
+                if (currentTime - lastCreditRefresh > CREDIT_REFRESH_INTERVAL) {
+                    withContext(Dispatchers.IO) {
+                        cachedRemainingCredit = getSharedPreferences("UNGKER_PREF", Context.MODE_PRIVATE)
+                            .getLong("remaining_credit", 0L)
+                    }
+                    lastCreditRefresh = currentTime
+                }
+
+                // ── Cache location - hanya refresh setiap 60 detik ───────────────
+                if (currentTime - lastLocationRefresh > LOCATION_REFRESH_INTERVAL) {
+                    withContext(Dispatchers.IO) {
+                        val sp = getSharedPreferences("UNGKER_PREF", Context.MODE_PRIVATE)
+                        cachedLocationLat = sp.getFloat("sholat_lat", -6.2088f).toDouble()
+                        cachedLocationLng = sp.getFloat("sholat_lng", 106.8456f).toDouble()
+                        cachedLocationTz = sp.getInt("sholat_tz", 7)
+                    }
+                    lastLocationRefresh = currentTime
+                }
+
+                // ── Cache pledge credit check - refresh setiap 10 detik ───────────
+                if (currentTime - lastPledgeRefresh > PLEDGE_REFRESH_INTERVAL) {
+                    cachedHasPledgeCredit = hasPledgeCredit(this@UngkerService)
+                    lastPledgeRefresh = currentTime
+                }
+
+                val foregroundApp = withContext(Dispatchers.IO) { getForegroundApp(this@UngkerService) }
+
+                val remainingCredit = cachedRemainingCredit
+                val blockedApps = cachedBlockedApps
+                val lat = cachedLocationLat
+                val lng = cachedLocationLng
+                val tz = cachedLocationTz
+
+                // Hitung deltaTime dengan interval baru (5 detik)
+                val adjustedDelta = 5000L
 
                 // ── Cache waktu sholat per jam agar hemat CPU ─────────────
                 val cal = Calendar.getInstance()
@@ -98,7 +142,7 @@ class UngkerService : Service() {
                 if (foregroundApp != null && isDeviceUnlocked()) {
                     val isOwnApp = foregroundApp == packageName
 
-                    if (!isOwnApp && inPrayerWindow && !hasPledgeCredit(this@UngkerService)) {
+                    if (!isOwnApp && inPrayerWindow && !cachedHasPledgeCredit) {
                         if (currentTime - sholatLockShownAt > 3000L) {
                             sholatLockShownAt = currentTime
                             val intentLock = Intent(this@UngkerService, SholatLockActivity::class.java).apply {
@@ -113,7 +157,7 @@ class UngkerService : Service() {
                             withContext(Dispatchers.IO) {
                                 val sp = getSharedPreferences("UNGKER_PREF", Context.MODE_PRIVATE)
                                 val latest    = sp.getLong("remaining_credit", 0L)
-                                val newCredit = maxOf(0L, latest - deltaTime)
+                                val newCredit = maxOf(0L, latest - adjustedDelta)
                                 sp.edit().putLong("remaining_credit", newCredit).apply()
                             }
                         } else {
@@ -128,7 +172,7 @@ class UngkerService : Service() {
                             }
                         }
                     } else if (!isOwnApp && blockedApps.contains(foregroundApp) && inPrayerWindow) {
-                        if (!hasPledgeCredit(this@UngkerService)) {
+                        if (!cachedHasPledgeCredit) {
                             if (currentTime - sholatLockShownAt > 3000L) {
                                 sholatLockShownAt = currentTime
                                 val intentLock = Intent(this@UngkerService, SholatLockActivity::class.java).apply {
@@ -142,13 +186,13 @@ class UngkerService : Service() {
                             withContext(Dispatchers.IO) {
                                 val sp = getSharedPreferences("UNGKER_PREF", Context.MODE_PRIVATE)
                                 val latest    = sp.getLong("remaining_credit", 0L)
-                                val newCredit = maxOf(0L, latest - deltaTime)
+                                val newCredit = maxOf(0L, latest - adjustedDelta)
                                 sp.edit().putLong("remaining_credit", newCredit).apply()
                             }
                         }
                     }
                 }
-                delay(1000)
+                delay(5000)
             }
         }
         return START_STICKY
@@ -192,12 +236,3 @@ class UngkerService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 }
-
-private data class SixTuple(
-    val a: String?,
-    val b: Long,
-    val c: Set<String>,
-    val d: Double,
-    val e: Double,
-    val f: Int
-)
