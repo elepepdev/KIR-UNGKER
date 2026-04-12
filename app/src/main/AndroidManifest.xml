@@ -18,6 +18,8 @@
     <uses-permission android:name="android.permission.REORDER_TASKS" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.DISABLE_KEYGUARD" />
 
     <application
         android:allowBackup="true"
@@ -51,6 +53,7 @@
             android:showOnLockScreen="true"
             android:launchMode="singleInstance"
             android:taskAffinity=""
+            android:exported="false"
             android:theme="@style/Theme.UNGKER" />
 
         <activity
@@ -61,6 +64,27 @@
             android:taskAffinity=""
             android:exported="false"
             android:theme="@style/Theme.UNGKER" />
+
+        <activity
+            android:name=".SocialMediaLockActivity"
+            android:excludeFromRecents="true"
+            android:showOnLockScreen="true"
+            android:launchMode="singleInstance"
+            android:taskAffinity=""
+            android:exported="false"
+            android:theme="@style/Theme.UNGKER" />
+
+        <service
+            android:name=".UngkerAccessibilityService"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/accessibility_service_config" />
+        </service>
 
         <service
             android:name=".UngkerService"

@@ -1,4 +1,4 @@
 <resources>
     <string name="app_name">UNGKER</string>
-
+    <string name="accessibility_service_description">Ungker uses Accessibility Service to detect which app is in the foreground and display the Quran lock screen when needed. Ungker does NOT read, collect, or transmit your screen content anywhere.</string>
 </resources>

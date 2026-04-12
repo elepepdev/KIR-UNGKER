@@ -4,7 +4,7 @@ plugins {
 }
 
 android {
-    namespace = "com.dame.ungker.ungkeh"
+    namespace = "com.ungker.ungkeh"
     compileSdk {
         version = release(36) {
             minorApiLevel = 1
@@ -12,11 +12,11 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.dame.ungker.ungkeh"
+        applicationId = "com.ungker.ungkeh"
         minSdk = 24
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.0.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -30,13 +30,19 @@ android {
             )
         }
     }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
-    buildFeatures {
-        compose = true
-    }
+}
+
+// Task tambahan untuk menyalin APK ke root dengan nama UNGKER.apk
+tasks.register<Copy>("copyApkToRoot") {
+    from("build/outputs/apk/debug/app-debug.apk")
+    into("../")
+    rename { "UNGKER.apk" }
+    dependsOn("assembleDebug")
 }
 
 dependencies {
@@ -52,6 +58,7 @@ dependencies {
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.material.icons.extended)
     implementation(libs.androidx.ui.graphics)
+    implementation(libs.play.services.location)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
