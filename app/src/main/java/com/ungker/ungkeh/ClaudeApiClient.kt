@@ -14,11 +14,18 @@ object ClaudeApiClient {
     private const val API_URL = "https://api.anthropic.com/v1/messages"
     
     suspend fun getWarmResponse(reason: String): String = withContext(Dispatchers.IO) {
+        val trimmedReason = reason.trim()
+        
+        // Validasi input acak/tidak bermakna
+        if (!isInputValid(trimmedReason)) {
+            return@withContext "Kalau nulis yang benar kocak"
+        }
+
         try {
             val apiKey = BuildConfig.ANTHROPIC_API_KEY
             if (apiKey.isBlank()) {
                 Log.e(TAG, "API Key is missing")
-                return@withContext fallbackResponse()
+                return@withContext fallbackResponse(reason)
             }
 
             val url = URL(API_URL)
@@ -30,8 +37,18 @@ object ClaudeApiClient {
             connection.doOutput = true
 
             val systemPrompt = """
-                Balas dalam 1-2 kalimat Bahasa Indonesia yang hangat, lucu kalau perlu, dan selalu akhiri dengan pengingat lembut tentang ngaji atau sholat.
-                Jangan ceramah. Jangan lebay.
+                Berlakulah sebagai teman sebaya yang santai dan cerdas, bukan guru atau orang tua. 
+                Tanggapi alasan pengguna (reason) dengan nada yang sesuai:
+                1. Alasan konyol/absurd/gabut (misal: 'gatau', 'iseng') -> humor ringan + pengingat santai.
+                2. Alasan masuk akal/fungsional -> apresiasi singkat + pengingat lembut.
+                3. Alasan serius/curhat -> empati dulu, baru ingatkan ibadah.
+                
+                Ketentuan:
+                - Maksimal 2 kalimat. Bahasa Indonesia santai/semi-gaul.
+                - JANGAN pakai kata "Kakak", "Adik", "Nak", "kami", "kita".
+                - Hindari nada menggurui/khotbah.
+                - Akhiri dengan pengingat sholat atau ngaji yang natural.
+                - Boleh pakai satu emoji relevan di akhir.
             """.trimIndent()
 
             val requestBody = JSONObject().apply {
@@ -63,35 +80,76 @@ object ClaudeApiClient {
         } catch (e: Exception) {
             Log.e(TAG, "Error calling Claude API", e)
         }
-        return@withContext fallbackResponse()
+        return@withContext fallbackResponse(reason)
     }
 
-    private fun fallbackResponse(): String {
-        val fallbacks = listOf(
-            "Jangan lupa ngaji dan sholat ya! Semangat! 🌟",
-            "Hehe, boleh kok istirahat bentar, tapi jangan kelamaan ya. Jangan lupa sholat! 😊",
-            "Semangat langkahmu! Nanti kalau sudah selesai, jangan lupa ngaji ya. ✨",
-            "Wah, mau santai dulu ya? Oke deh, tapi ingat waktu ya, jangan sampai kelewat waktu sholatnya. 🕌",
-            "Istirahatnya sebentar saja ya, mari kembali untuk melanjutkan hal baik lainnya. Semangat! 💪",
-            "Hehe, bosen ya? Gak apa-apa kok, tapi habis ini coba baca satu lembar Al-Quran, pasti hati jadi tenang. 📖",
-            "Scrolling-nya jangan jauh-jauh ya, nanti tersesat lho. Ingat sholat itu utama! 🌟",
-            "Boleh istirahat sejenak, asalkan jangan lupa kewajiban sholat dan ngajinya ya. 😊",
-            "Istirahat itu perlu, tapi ingat ya, dunia digital gak ada habisnya. Jangan lupa ngaji! ✨",
-            "Silakan istirahat sejenak, tapi berjanji ya habis ini kita tadarus bersama? Oke? 😉",
-            "Jangan sampai keasyikan beraktivitas sampai lupa sholat ya. Kami ingatkan! 🔔",
-            "Boleh beraktivitas, tapi jika sudah adzan, segera hentikan dan tunaikan kewajiban. Luar biasa! 🌟",
-            "Istirahat sebentar untuk cari ide ya? Habis itu lanjut tadarus lagi, oke? Kami dukung! 💪",
-            "Semoga harimu menyenangkan! Akan lebih bermakna jika kita tunaikan sholat tepat waktu. Mari coba! 😊",
-            "Jangan lupa istirahat sejenak! Dan jangan lupa tunaikan sholat juga pas waktunya tiba. ✨",
-            "Santai sejenak boleh banget, tapi jangan sampai lalai sama komitmenmu ya. Semangat terus! 📖",
-            "Lakukan aktivitas secukupnya, tadarus sebanyak-banyaknya. Itu baru individu yang hebat! 🌟",
-            "Kami senang kamu jujur alasannya. Sekarang istirahat sebentar ya, nanti kita lanjut tadarus. 😊",
-            "Ingat ya, gadget itu cuma alat, tapi sholat itu tujuan hidup. Jangan terbalik ya! ✨",
-            "Nikmati harimu dengan lebih ringan! Terus jangan lupa tunaikan sholat ya. 😊",
-            "Istirahat untuk refreshing? Oke! Tapi jangan lupa lapor pada Allah lewat sholat ya kalau sudah waktunya. 🕌",
-            "Wah, semangat banget aktivitasmu. Harus lebih semangat lagi pas waktunya ibadah nanti ya! 🌟",
-            "Istirahat yang berkualitas itu bukan cuma beraktivitas di gawai, tapi juga menunaikan sholat. Coba rasakan bedanya! ✨"
+    private fun isInputValid(input: String): Boolean {
+        if (input.length < 5) return false
+        
+        // Cek jika hanya angka acak panjang
+        if (input.all { it.isDigit() } && input.length > 5) return false
+        
+        // Cek keyboard smash (kata terlalu panjang tanpa spasi)
+        val words = input.split(" ")
+        if (words.any { it.length > 18 }) return false
+        
+        // Cek rasio vokal (ketikan acak biasanya sedikit vokal)
+        val vowels = "aeiouAEIOU"
+        val vowelCount = input.count { it in vowels }
+        if (input.length > 10 && vowelCount.toDouble() / input.length < 0.1) return false
+        
+        return true
+    }
+
+    private fun fallbackResponse(reason: String): String {
+        val lowerReason = reason.lowercase()
+        
+        // Untuk alasan konyol/santai (9 string)
+        val konyol = listOf(
+            "Alasan klasik nih, haha. Tapi ya udah, jangan lupa sholat ya! 😂",
+            "Random banget, tapi oke lah. Jangan sampai lupa ngaji juga.",
+            "Gabutnya produktif dikit lah, sambil dengerin murottal gitu misalnya.",
+            "Wkwk ada-ada aja. Tapi tetep, urusan sama Yang Di Atas jangan telat.",
+            "Lucu juga alasannya, tapi jangan selucu itu sampai lupa waktu sholat.",
+            "Oke, dimaafin karena jujur. Tapi tetep harus sholat tepat waktu ya!",
+            "Iya deh si paling random. Inget ngaji ya kalau udah nggak gabut.",
+            "Hehe, gila sih. Tapi serius, sholatnya jangan ditinggalin ya.",
+            "Hahaha, ya udah sana. Tapi inget, akhirat tetep nomor satu! ☝️"
         )
-        return fallbacks.random()
+
+        // Untuk alasan serius/curhat (9 string)
+        val serius = listOf(
+            "Lagi berat ya? Semangat! Jangan lupa curhatnya ke Allah lewat sholat.",
+            "I feel you. Tarik napas dulu, nanti coba tenangin hati pakai ngaji.",
+            "Capek itu wajar, tapi sholat itu yang bikin tenang. Semangat ya!",
+            "Butuh jeda ya? Fair. Semoga abis sholat hatinya jadi lebih adem.",
+            "Emang kadang hidup sebercanda itu. Sempetin ngaji biar nggak oleng.",
+            "Lagi pusing ya? Coba deh wudhu dulu terus sholat, pasti beda rasanya.",
+            "Gapapa rehat dulu. Nanti balik lagi dengan versi terbaikmu setelah ngaji.",
+            "Stay strong! Jangan sampe masalah dunia bikin kamu jauh dari sholat.",
+            "Sabar ya, semua pasti ada jalannya. Yuk, tenangin diri lewat tilawah."
+        )
+
+        // Untuk alasan umum/netral (9 string)
+        val umum = listOf(
+            "Oke, lanjutin aja kalau penting, tapi sholat jangan sampe kelewat ya. 🙏",
+            "Siap, asalkan nanti sempetin ngaji bentar biar makin berkah harinya.",
+            "Boleh kok, tapi tetep inget waktu ya, jangan lupa ibadah juga.",
+            "Gaskeun, asal kewajiban tetep jadi prioritas utama. Semangat!",
+            "Fokus selesaikan urusannya ya, terus nanti healing-nya lewat sholat.",
+            "Valid sih alasannya. Nanti kalau udah senggang, lanjut tilawah ya.",
+            "Sip, yang penting tetep produktif dan nggak lupa waktu sholat. ✨",
+            "Oke deh, tapi janji ya habis ini sempetin baca Al-Quran bentar.",
+            "Lanjut aja dulu, tapi pastiin hati tetep tenang dengan dzikir atau sholat."
+        )
+
+        val konyolKeywords = listOf("gatau", "gabut", "iseng", "kepo", "random", "apa aja", "nggak tahu", "tdk tahu", "hehe", "hanya", "cuma")
+        val seriusKeywords = listOf("stres", "sedih", "bosen", "capek", "pusing", "masalah", "curhat", "galau", "lelah", "berat", "penat")
+
+        return when {
+            konyolKeywords.any { lowerReason.contains(it) } -> konyol.random()
+            seriusKeywords.any { lowerReason.contains(it) } -> serius.random()
+            else -> umum.random()
+        }
     }
 }
