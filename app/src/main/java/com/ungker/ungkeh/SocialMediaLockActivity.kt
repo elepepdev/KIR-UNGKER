@@ -89,6 +89,7 @@ class SocialMediaLockActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
 
         targetPackage = intent.getStringExtra("target_package")
 
@@ -134,7 +135,7 @@ class SocialMediaLockActivity : ComponentActivity() {
             CompositionLocalProvider(LocalIsDarkMode provides isDarkMode) {
                 MaterialTheme(colorScheme = colorScheme) {
                     Surface(
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier.fillMaxSize().systemBarsPadding(),
                         color = if (isDarkMode) Color(0xFF0F172A) else Color(0xFFF8F9FA)
                     ) {
                         SocialMediaLockScreen(
@@ -233,7 +234,7 @@ fun SocialMediaLockScreen(targetPackage: String?, onDismiss: () -> Unit) {
     }
     
     val handleIkhlas: () -> Unit = {
-        UnlockManager.activateHardLockUntilTomorrow(prefs)
+        UnlockManager.activateHardLockUntilTomorrow(prefs, "ikhlas")
         prefs.setIsInUnlockChallenge(false)
         prefs.setQuranPagesReadForUnlock(0)
         
@@ -911,6 +912,16 @@ fun HardLockedScreen(
     orangeAccent: Color,
     onDismiss: () -> Unit
 ) {
+    val context = LocalContext.current
+    val prefs = remember { PreferenceManager(context) }
+    val hardLockReason = remember { prefs.getHardLockReason() }
+    
+    val (titleText, messageText) = when (hardLockReason) {
+        "ikhlas" -> "Masya Allah! Kamu memilih untuk berhenti hari ini. Sampai jumpa besok" to "Selamat beristirahat, sampai jumpa besok 🌙"
+        "limit_exceeded" -> "Batas waktu + bonus 30 menit sudah habis" to "Lanjutkan besok, tetap semangat! 🚫"
+        else -> "Sudah Ikhlas Hari Ini" to "Batas waktu media sosialmu sudah habis sepenuhnya untuk hari ini. Mari lanjutkan kegiatan positif lainnya!"
+    }
+    
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -926,7 +937,7 @@ fun HardLockedScreen(
         Spacer(modifier = Modifier.height(24.dp))
         
         Text(
-            text = "Sudah Ikhlas Hari Ini",
+            text = titleText,
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold,
             color = textPrim,
@@ -936,7 +947,7 @@ fun HardLockedScreen(
         Spacer(modifier = Modifier.height(16.dp))
         
         Text(
-            text = "Batas waktu media sosialmu sudah habis sepenuhnya untuk hari ini. Mari lanjutkan kegiatan positif lainnya!",
+            text = messageText,
             style = MaterialTheme.typography.bodyLarge,
             color = textSec,
             textAlign = TextAlign.Center

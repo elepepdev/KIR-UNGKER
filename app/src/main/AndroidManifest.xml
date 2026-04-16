@@ -74,6 +74,15 @@
             android:exported="false"
             android:theme="@style/Theme.UNGKER" />
 
+        <activity
+            android:name=".DeepFrictionActivity"
+            android:excludeFromRecents="true"
+            android:showOnLockScreen="true"
+            android:launchMode="singleInstance"
+            android:taskAffinity=""
+            android:exported="false"
+            android:theme="@style/Theme.UNGKER" />
+
         <service
             android:name=".UngkerAccessibilityService"
             android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"

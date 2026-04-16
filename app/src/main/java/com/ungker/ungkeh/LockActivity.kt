@@ -787,6 +787,14 @@ class LockActivity : ComponentActivity() {
         DisposableEffect(speechRecognizer) { speechRecognizer?.setRecognitionListener(listener); onDispose { speechRecognizer?.destroy() } }
         val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { if (it) { confirmedTranscript = ""; charStatusMap = emptyMap(); partialDebounceJob?.cancel(); autoCheckJob?.cancel(); sedangMerekam = true; speechRecognizer?.startListening(recIntent) } }
 
+        // Auto-restart microphone when switching to the next verse if it was already recording
+        LaunchedEffect(indexAyatSekarang) {
+            if (sedangMerekam && indexAyatSekarang > 0) {
+                delay(600) // Wait for verse transition animation to finish
+                speechRecognizer?.startListening(recIntent)
+            }
+        }
+
         Box(modifier = Modifier.fillMaxSize()) {
             Column(modifier = Modifier.fillMaxSize().navigationBarsPadding().padding(horizontal = 24.dp, vertical = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 // Header Row

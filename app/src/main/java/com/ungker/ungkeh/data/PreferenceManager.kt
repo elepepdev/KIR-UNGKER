@@ -93,6 +93,7 @@ class PreferenceManager(context: Context) {
         const val SOCIAL_MEDIA_TEMP_UNLOCK_EXPIRY_MS = "social_media_temp_unlock_expiry_ms"
         const val USER_ROLE = "user_role"
         const val PARENT_PASSWORD = "parent_password"
+        const val HARD_LOCK_REASON = "hard_lock_reason"
     }
 
     fun getUserRole(): String = sharedPref.getString(Companion.USER_ROLE, "personal") ?: "personal"
@@ -100,4 +101,8 @@ class PreferenceManager(context: Context) {
 
     fun getParentPassword(): String = sharedPref.getString(Companion.PARENT_PASSWORD, "") ?: ""
     fun setParentPassword(password: String) = sharedPref.edit { putString(PARENT_PASSWORD, password) }
+
+    // Hard lock reason
+    fun getHardLockReason(): String = sharedPref.getString(Companion.HARD_LOCK_REASON, "") ?: ""
+    fun setHardLockReason(reason: String) = sharedPref.edit { putString(HARD_LOCK_REASON, reason) }
 }

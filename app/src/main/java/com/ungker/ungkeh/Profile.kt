@@ -133,7 +133,7 @@ val ALL_BADGES = listOf(
         "Membaca Al-Qur'an di mushaf UNGKER setelah jam 22.00",
         Color(0xFF5C6BC0)),
     BadgeInfo("badge_no_brainwash",  "🛡️", "I'm Not Getting Brainwashed!",
-        "Penggunaan medsos & game di bawah 3 jam per hari selama 3 hari berturut-turut",
+        "Penggunaan medsos & game di bawah batas yang ditentukan selama 3 hari berturut-turut",
         Color(0xFF2E7D32)),
 )
 

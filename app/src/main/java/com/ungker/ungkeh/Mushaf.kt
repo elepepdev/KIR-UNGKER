@@ -178,7 +178,7 @@ fun MushafPagePicker(onBack: () -> Unit, onOpenPage: (Int) -> Unit) {
         else (1..604).filter { it.toString().startsWith(q) }
     }
 
-    Column(modifier = Modifier.fillMaxSize().background(pageBg())) {
+    Column(modifier = Modifier.fillMaxSize().background(pageBg()).navigationBarsPadding()) {
         Row(modifier = Modifier.fillMaxWidth().padding(start = 4.dp, top = 12.dp, end = 16.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = textPrimC()) }
             Text("Mushaf", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = textPrimC(), modifier = Modifier.weight(1f))
@@ -358,7 +358,7 @@ fun MushafPageReader(page: Int, dbHelper: QuranDatabaseHelper, onBack: () -> Uni
                         fontWeight = FontWeight.Bold
                     )
                 },
-                modifier = Modifier.offset(y = (-10).dp)
+                modifier = Modifier.offset(y = (-10).dp).navigationBarsPadding()
             )
         }
     ) { innerPadding ->

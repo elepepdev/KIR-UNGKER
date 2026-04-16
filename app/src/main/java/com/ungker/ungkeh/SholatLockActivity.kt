@@ -75,17 +75,27 @@ const val UNLOCK_DELAY_MS      = 800L
 
 fun isWithinPrayerWindow(context: Context): Pair<Boolean, String> {
     val sp = context.getSharedPreferences(PLEDGE_PREFS, Context.MODE_PRIVATE)
+    if (!sp.contains("sholat_city_name")) return false to ""
+
     val lat = sp.getFloat("sholat_lat", -6.2088f).toDouble()
     val lng = sp.getFloat("sholat_lng", 106.8456f).toDouble()
     val tz  = sp.getInt("sholat_tz", 7)
-    val cal = Calendar.getInstance()
-    val pt  = try { hitungWaktuSholat(cal.get(Calendar.YEAR), cal.get(Calendar.MONTH) + 1, cal.get(Calendar.DAY_OF_MONTH), lat, lng, tz) } catch (_: Exception) { return false to "" }
-    val nowDecimal = cal.get(Calendar.HOUR_OF_DAY) + cal.get(Calendar.MINUTE) / 60.0
-    fun toDecimal(hhmm: String): Double { val p = hhmm.split(":"); return p[0].toDouble() + p[1].toDouble() / 60.0 }
-    val prayers = listOf("Subuh" to toDecimal(pt.subuh), "Dzuhur" to toDecimal(pt.dzuhur), "Ashar" to toDecimal(pt.ashar), "Maghrib" to toDecimal(pt.maghrib), "Isya" to toDecimal(pt.isya))
-    val windowDecimal = 10.0 / 60.0
-    for ((name, prayerTime) in prayers) { if (nowDecimal >= prayerTime && nowDecimal <= prayerTime + windowDecimal) return true to name }
-    return false to ""
+    
+    val tzId = if (tz >= 0) "GMT+$tz" else "GMT$tz"
+    val cal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone(tzId))
+    
+    val pt  = try { hitungWaktuSholat(cal.get(java.util.Calendar.YEAR), cal.get(java.util.Calendar.MONTH) + 1, cal.get(java.util.Calendar.DAY_OF_MONTH), lat, lng, tz) } catch (_: Exception) { return false to "" }
+    
+    val nowSec = getNowSecInTz(tz)
+    val prayers = mapOf(
+        "Subuh"   to pt.subuhSec,
+        "Dzuhur"  to pt.dzuhurSec,
+        "Ashar"   to pt.asharSec,
+        "Maghrib" to pt.maghribSec,
+        "Isya"    to pt.isyaSec
+    )
+    val name = checkPrayerWindow(prayers, nowSec, 600.0)
+    return (name != null) to (name ?: "")
 }
 
 fun hasPledgeCredit(context: Context): Boolean {
@@ -104,17 +114,29 @@ fun pledgeWasUsedAndExpired(context: Context): Boolean {
 
 fun getCurrentPrayerSessionKey(context: Context): String {
     val sp  = context.getSharedPreferences(PLEDGE_PREFS, Context.MODE_PRIVATE)
+    if (!sp.contains("sholat_city_name")) return ""
+
     val lat = sp.getFloat("sholat_lat", -6.2088f).toDouble()
     val lng = sp.getFloat("sholat_lng", 106.8456f).toDouble()
     val tz  = sp.getInt("sholat_tz", 7)
-    val cal = Calendar.getInstance()
-    val pt  = try { hitungWaktuSholat(cal.get(Calendar.YEAR), cal.get(Calendar.MONTH) + 1, cal.get(Calendar.DAY_OF_MONTH), lat, lng, tz) } catch (_: Exception) { return "" }
-    fun toMin(hhmm: String): Int { val p = hhmm.split(":"); return p[0].toInt() * 60 + p[1].toInt() }
-    val nowSec = cal.get(Calendar.HOUR_OF_DAY) * 3600 + cal.get(Calendar.MINUTE) * 60 + cal.get(Calendar.SECOND)
-    val prayers = listOf("Subuh" to toMin(pt.subuh), "Dzuhur" to toMin(pt.dzuhur), "Ashar" to toMin(pt.ashar), "Maghrib" to toMin(pt.maghrib), "Isya" to toMin(pt.isya))
-    val dateStr = "%04d-%02d-%02d".format(cal.get(Calendar.YEAR), cal.get(Calendar.MONTH) + 1, cal.get(Calendar.DAY_OF_MONTH))
-    for ((name, pMin) in prayers) { if (nowSec in (pMin * 60)..(pMin * 60 + SHOLAT_WINDOW_MS.toInt() / 1000)) return "${dateStr}_$name" }
-    return ""
+    
+    val tzId = if (tz >= 0) "GMT+$tz" else "GMT$tz"
+    val cal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone(tzId))
+    
+    val pt  = try { hitungWaktuSholat(cal.get(java.util.Calendar.YEAR), cal.get(java.util.Calendar.MONTH) + 1, cal.get(java.util.Calendar.DAY_OF_MONTH), lat, lng, tz) } catch (_: Exception) { return "" }
+    
+    val nowSec = getNowSecInTz(tz)
+    val prayers = mapOf(
+        "Subuh"   to pt.subuhSec,
+        "Dzuhur"  to pt.dzuhurSec,
+        "Ashar"   to pt.asharSec,
+        "Maghrib" to pt.maghribSec,
+        "Isya"    to pt.isyaSec
+    )
+    val name = checkPrayerWindow(prayers, nowSec, 600.0)
+    val dateStr = "%04d-%02d-%02d".format(cal.get(java.util.Calendar.YEAR), cal.get(java.util.Calendar.MONTH) + 1, cal.get(java.util.Calendar.DAY_OF_MONTH))
+    
+    return if (name != null) "${dateStr}_$name" else ""
 }
 
 fun savePledgeCredit(context: Context) {
@@ -129,6 +151,7 @@ fun savePledgeCredit(context: Context) {
 
 class SholatLockActivity : ComponentActivity() {
     private var targetPackage: String? = null
+    private var activePrayerFromIntent: String? = null
     private val scope = CoroutineScope(Dispatchers.Main + Job())
     private var dndApplied = false
     private var originalDndFilter = NotificationManager.INTERRUPTION_FILTER_ALL
@@ -157,6 +180,7 @@ class SholatLockActivity : ComponentActivity() {
                 val intent = Intent(this@SholatLockActivity, SholatLockActivity::class.java).apply {
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_NO_ANIMATION)
                     targetPackage?.let { putExtra("target_package", it) }
+                    activePrayerFromIntent?.let { putExtra("active_prayer", it) }
                 }
                 startActivity(intent)
             }
@@ -166,6 +190,7 @@ class SholatLockActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         targetPackage = intent.getStringExtra("target_package")
+        activePrayerFromIntent = intent.getStringExtra("active_prayer")
         UngkerService.isLockActivityVisible = true
         applyDndBlock()
         setupLockFlags()
@@ -183,7 +208,7 @@ class SholatLockActivity : ComponentActivity() {
                 }
             }
         }
-        setContent { SideEffect { applyImmersiveMode() }; MaterialTheme { SholatLockScreen(isExpiredMode = isExpiredMode, onUnlocked = { launchTargetAndFinish() }) } }
+        setContent { SideEffect { applyImmersiveMode() }; MaterialTheme { SholatLockScreen(isExpiredMode = isExpiredMode, initialPrayerName = activePrayerFromIntent ?: "", onUnlocked = { launchTargetAndFinish() }) } }
     }
 
     @Suppress("DEPRECATION")
@@ -291,7 +316,7 @@ class SholatLockActivity : ComponentActivity() {
 }
 
 @Composable
-fun SholatLockScreen(isExpiredMode: Boolean, onUnlocked: () -> Unit) {
+fun SholatLockScreen(isExpiredMode: Boolean, initialPrayerName: String, onUnlocked: () -> Unit) {
     val context = LocalContext.current
     val sp = remember { context.getSharedPreferences("UNGKER_PREF", Context.MODE_PRIVATE) }
     val isDarkMode = remember { sp.getBoolean("dark_mode", false) }
@@ -337,7 +362,7 @@ fun SholatLockScreen(isExpiredMode: Boolean, onUnlocked: () -> Unit) {
                 transitionSpec = { fadeIn() togetherWith fadeOut() },
                 label = "mode"
             ) { expired ->
-                if (expired) SholatFinalLockScreen() else SholatPledgeScreen(onUnlocked = onUnlocked)
+                if (expired) SholatFinalLockScreen() else SholatPledgeScreen(initialPrayerName = initialPrayerName, onUnlocked = onUnlocked)
             }
         }
     }
@@ -419,7 +444,7 @@ private fun CrescentMoonOrb(prayerName: String, remainingSec: Long) {
 }
 
 @Composable
-fun SholatPledgeScreen(onUnlocked: () -> Unit) {
+fun SholatPledgeScreen(initialPrayerName: String, onUnlocked: () -> Unit) {
     val context = LocalContext.current
     val sp = remember { context.getSharedPreferences(PLEDGE_PREFS, Context.MODE_PRIVATE) }
     val userRole = remember { sp.getString("user_role", "personal") ?: "personal" }
@@ -431,7 +456,7 @@ fun SholatPledgeScreen(onUnlocked: () -> Unit) {
     val textSecondary = textSecC()
     
     var remainingWindowSec by remember { mutableLongStateOf(0L) }
-    var activePrayerName by remember { mutableStateOf("") }
+    var activePrayerName by remember { mutableStateOf(initialPrayerName) }
     
     LaunchedEffect(Unit) {
         while (true) {
@@ -441,18 +466,21 @@ fun SholatPledgeScreen(onUnlocked: () -> Unit) {
                 val lat = sp.getFloat("sholat_lat", -6.2088f).toDouble()
                 val lng = sp.getFloat("sholat_lng", 106.8456f).toDouble()
                 val tz = sp.getInt("sholat_tz", 7)
-                val cal = Calendar.getInstance()
-                val pt = hitungWaktuSholat(cal.get(Calendar.YEAR), cal.get(Calendar.MONTH) + 1, cal.get(Calendar.DAY_OF_MONTH), lat, lng, tz)
-                val pStr = when (name) {
-                    "Subuh" -> pt.subuh
-                    "Dzuhur" -> pt.dzuhur
-                    "Ashar" -> pt.ashar
-                    "Maghrib" -> pt.maghrib
-                    else -> pt.isya
+                
+                val tzId = if (tz >= 0) "GMT+$tz" else "GMT$tz"
+                val cal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone(tzId))
+                
+                val pt = hitungWaktuSholat(cal.get(java.util.Calendar.YEAR), cal.get(java.util.Calendar.MONTH) + 1, cal.get(java.util.Calendar.DAY_OF_MONTH), lat, lng, tz)
+                
+                val pSec = when (name) {
+                    "Subuh" -> pt.subuhSec
+                    "Dzuhur" -> pt.dzuhurSec
+                    "Ashar" -> pt.asharSec
+                    "Maghrib" -> pt.maghribSec
+                    else -> pt.isyaSec
                 }
-                val pSec = pStr.split(":").let { it[0].toLong() * 3600 + it[1].toLong() * 60 }
-                val nowSec = cal.get(Calendar.HOUR_OF_DAY) * 3600L + cal.get(Calendar.MINUTE) * 60L + cal.get(Calendar.SECOND)
-                remainingWindowSec = maxOf(0L, (pSec + SHOLAT_WINDOW_MS / 1000) - nowSec)
+                val nowSec = getNowSecInTz(tz)
+                remainingWindowSec = maxOf(0L, (pSec + 600.0 - nowSec).toLong())
             }
             delay(WINDOW_UPDATE_DELAY)
         }

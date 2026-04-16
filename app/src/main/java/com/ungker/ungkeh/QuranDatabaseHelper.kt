@@ -218,29 +218,47 @@ class QuranDatabaseHelper(context: Context) : SQLiteOpenHelper(context.applicati
     suspend fun getRandomVerseSet(): Pair<String, List<String>> = withContext(Dispatchers.IO) {
         val allChapters = getAllChaptersMeta()
         if (allChapters.isEmpty()) return@withContext Pair("Surah", emptyList())
-        val randomSurahMeta = allChapters.random()
-        val (surahName, allVerses) = getVersesFromSurah(randomSurahMeta.id)
-        if (allVerses.isEmpty()) return@withContext Pair(surahName, emptyList())
+        
+        var randomSurahMeta = allChapters.random()
+        var (surahName, allVerses) = getVersesFromSurah(randomSurahMeta.id)
+        
+        // Filter verses that are too long (> 30 words)
+        var filteredVerses = allVerses.filter { it.split(Regex("\\s+")).size <= 30 }
+        
+        // If the surah has no short verses, try another surah (max 10 attempts to avoid infinite loop)
+        var attempts = 0
+        while (filteredVerses.isEmpty() && attempts < 10) {
+            randomSurahMeta = allChapters.random()
+            val nextData = getVersesFromSurah(randomSurahMeta.id)
+            surahName = nextData.first
+            allVerses = nextData.second
+            filteredVerses = allVerses.filter { it.split(Regex("\\s+")).size <= 30 }
+            attempts++
+        }
+
+        if (filteredVerses.isEmpty()) return@withContext Pair(surahName, emptyList())
         
         val targetCount = Random.nextInt(3, 6)
-        val startIndex = Random.nextInt(0, allVerses.size)
+        val startIndex = Random.nextInt(0, filteredVerses.size)
         
         val resultVerses = mutableListOf<String>()
-        val takeFromFirst = minOf(targetCount, allVerses.size - startIndex)
-        resultVerses.addAll(allVerses.subList(startIndex, startIndex + takeFromFirst))
+        val takeFromFirst = minOf(targetCount, filteredVerses.size - startIndex)
+        resultVerses.addAll(filteredVerses.subList(startIndex, startIndex + takeFromFirst))
         
         var finalSurahName = surahName
         
+        // For the next surah in a set, also apply the 30-word limit
         if (resultVerses.size < targetCount && randomSurahMeta.id < 114) {
             val (nextSurahName, nextVerses) = getVersesFromSurah(randomSurahMeta.id + 1)
-            if (nextVerses.isNotEmpty()) {
+            val filteredNext = nextVerses.filter { it.split(Regex("\\s+")).size <= 30 }
+            if (filteredNext.isNotEmpty()) {
                 finalSurahName = "$surahName & $nextSurahName"
                 if (randomSurahMeta.id + 1 != 9) { // Next surah is not At-Tawbah
                     resultVerses.add("بِسْمِ اللَّهِ الرَّحْمَنِ الرَّحِيمِ")
                 }
                 val remainingNeeded = targetCount - resultVerses.size
                 if (remainingNeeded > 0) {
-                    resultVerses.addAll(nextVerses.take(remainingNeeded))
+                    resultVerses.addAll(filteredNext.take(remainingNeeded))
                 }
             }
         }
@@ -251,9 +269,22 @@ class QuranDatabaseHelper(context: Context) : SQLiteOpenHelper(context.applicati
     suspend fun getRandomVerse(): Pair<String, String> = withContext(Dispatchers.IO) {
         val allChapters = getAllChaptersMeta()
         if (allChapters.isEmpty()) return@withContext Pair("Al-Fatihah", "الحمد لله رب العالمين")
-        val randomSurah = allChapters.random()
-        val (surahName, allVerses) = getVersesFromSurah(randomSurah.id)
-        if (allVerses.isEmpty()) return@withContext Pair(surahName, "Tidak ada ayat.")
-        return@withContext Pair(surahName, allVerses.random())
+        
+        var randomSurah = allChapters.random()
+        var (surahName, allVerses) = getVersesFromSurah(randomSurah.id)
+        var filteredVerses = allVerses.filter { it.split(Regex("\\s+")).size <= 30 }
+        
+        var attempts = 0
+        while (filteredVerses.isEmpty() && attempts < 10) {
+            randomSurah = allChapters.random()
+            val nextData = getVersesFromSurah(randomSurah.id)
+            surahName = nextData.first
+            allVerses = nextData.second
+            filteredVerses = allVerses.filter { it.split(Regex("\\s+")).size <= 30 }
+            attempts++
+        }
+        
+        if (filteredVerses.isEmpty()) return@withContext Pair(surahName, "Tidak ada ayat pendek.")
+        return@withContext Pair(surahName, filteredVerses.random())
     }
 }

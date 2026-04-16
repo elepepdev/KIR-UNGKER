@@ -58,9 +58,12 @@ import androidx.compose.ui.graphics.graphicsLayer
 import com.google.android.gms.location.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import androidx.core.view.WindowCompat
+
 class OnboardingActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         val sp = getSharedPreferences("UNGKER_PREF", Context.MODE_PRIVATE)
 
         // Jika sudah pernah onboarding, langsung ke MainActivity
@@ -71,7 +74,7 @@ class OnboardingActivity : ComponentActivity() {
         setContent {
             MaterialTheme {
                 OnboardingScreen(
-                    onFinish = { name, selectedApps, timeLimitMinutes, lat, lng, tz, role, password ->
+                    onFinish = { name, selectedApps, timeLimitMinutes, lat, lng, tz, role, password, cityName ->
                         // Generate UID jika belum ada
                         val uid = sp.getString("user_uid", null) ?: run {
                             val g = (100000..999999).random().toString()
@@ -82,6 +85,7 @@ class OnboardingActivity : ComponentActivity() {
                         val finalLat = lat ?: (-6.2088) // Default Jakarta
                         val finalLng = lng ?: 106.8456
                         val finalTz = tz ?: 7
+                        val finalCity = cityName ?: "Jakarta (Default)"
                         
                         sp.edit {
                             putString("user_name", name.trim().ifBlank { "Fulan#$uid" })
@@ -90,6 +94,7 @@ class OnboardingActivity : ComponentActivity() {
                             putFloat("sholat_lat", finalLat.toFloat())
                             putFloat("sholat_lng", finalLng.toFloat())
                             putInt("sholat_tz", finalTz)
+                            putString("sholat_city_name", finalCity)
                             putBoolean("sholat_gps_mode", lat != null) // Set TRUE jika GPS berhasil didapat
                             putString("user_role", role)
                             putString("parent_password", password)
@@ -148,21 +153,23 @@ internal val pages = listOf(
 // ── Composable utama ──────────────────────────────────────────────────────────
 
 @Composable
-fun OnboardingScreen(onFinish: (String, Set<String>, Long, Double?, Double?, Int, String, String) -> Unit) {
+fun OnboardingScreen(onFinish: (String, Set<String>, Long, Double?, Double?, Int, String, String, String) -> Unit) {
     var currentPage by remember { mutableIntStateOf(0) }
     var selectedApps by remember { mutableStateOf(setOf<String>()) }
     var selectedTimeLimit by remember { mutableLongStateOf(60L) } // Default 1 Hour
     var gpsLocation by remember { mutableStateOf<Pair<Double, Double>?>(null) }
     var gpsTimezone by remember { mutableIntStateOf(7) } // Default UTC+7
+    var gpsCityName by remember { mutableStateOf("Jakarta") } // Default city
     var userRole by remember { mutableStateOf("personal") }
     var parentPassword by remember { mutableStateOf("") }
 
-    val totalSteps = pages.size + 7 // Intro(4) + Izin(1) + Accessibility(1) + GPS(1) + PilihApp(1) + Waktu(1) + Role(1) + Password(1) = 11
+    val totalSteps = pages.size + 8 // Intro(4) + Izin(1) + Accessibility(1) + Battery(1) + GPS(1) + PilihApp(1) + Waktu(1) + Role(1) + Password(1) = 12
 
     Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFF0F172A))
+            .systemBarsPadding()
     ) {
         AnimatedContent(
             targetState = currentPage,
@@ -190,17 +197,23 @@ fun OnboardingScreen(onFinish: (String, Set<String>, Long, Double?, Double?, Int
                     totalPages = totalSteps,
                     onNext = { currentPage++ }
                 )
-                page == pages.size + 2 -> GpsLocationPage(
+                page == pages.size + 2 -> BatteryOptimizationPage(
                     pageIndex = page,
                     totalPages = totalSteps,
-                    onLocationObtained = { lat, lng, tz ->
+                    onNext = { currentPage++ }
+                )
+                page == pages.size + 3 -> GpsLocationPage(
+                    pageIndex = page,
+                    totalPages = totalSteps,
+                    onLocationObtained = { lat, lng, tz, cityName ->
                         gpsLocation = Pair(lat, lng)
                         gpsTimezone = tz
+                        gpsCityName = cityName
                         currentPage++
                     },
                     onNext = { currentPage++ }
                 )
-                page == pages.size + 3 -> AppSelectionOnboardingPage(
+                page == pages.size + 4 -> AppSelectionOnboardingPage(
                     pageIndex = page,
                     totalPages = totalSteps,
                     selectedApps = selectedApps,
@@ -209,14 +222,14 @@ fun OnboardingScreen(onFinish: (String, Set<String>, Long, Double?, Double?, Int
                         currentPage++
                     }
                 )
-                page == pages.size + 4 -> TimeLimitSelectionPage(
+                page == pages.size + 5 -> TimeLimitSelectionPage(
                     pageIndex = page,
                     totalPages = totalSteps,
                     selectedLimit = selectedTimeLimit,
                     onLimitSelected = { selectedTimeLimit = it },
                     onNext = { currentPage++ }
                 )
-                page == pages.size + 5 -> UserRoleSelectionPage(
+                page == pages.size + 6 -> UserRoleSelectionPage(
                     pageIndex = page,
                     totalPages = totalSteps,
                     selectedRole = userRole,
@@ -229,7 +242,7 @@ fun OnboardingScreen(onFinish: (String, Set<String>, Long, Double?, Double?, Int
                         }
                     }
                 )
-                page == pages.size + 6 -> ParentPasswordPage(
+                page == pages.size + 7 -> ParentPasswordPage(
                     pageIndex = page,
                     totalPages = totalSteps,
                     onPasswordSet = { 
@@ -238,7 +251,7 @@ fun OnboardingScreen(onFinish: (String, Set<String>, Long, Double?, Double?, Int
                     }
                 )
                 else -> NameInputPage(onFinish = { name -> 
-                    onFinish(name, selectedApps, selectedTimeLimit, gpsLocation?.first, gpsLocation?.second, gpsTimezone, userRole, parentPassword) 
+                    onFinish(name, selectedApps, selectedTimeLimit, gpsLocation?.first, gpsLocation?.second, gpsTimezone, userRole, parentPassword, gpsCityName) 
                 })
             }
         }
@@ -736,13 +749,135 @@ fun AccessibilityPage(pageIndex: Int, totalPages: Int, onNext: () -> Unit) {
     }
 }
 
+// ── Halaman Battery Optimization ────────────────────────────────────────────────
+
+@Composable
+fun BatteryOptimizationPage(pageIndex: Int, totalPages: Int, onNext: () -> Unit) {
+    val context = LocalContext.current
+    var isIgnored by remember { mutableStateOf(CompatibilityUtils.isBatteryOptimizationIgnored(context)) }
+
+    LaunchedEffect(Unit) {
+        while (!isIgnored) {
+            isIgnored = CompatibilityUtils.isBatteryOptimizationIgnored(context)
+            kotlinx.coroutines.delay(1000)
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(horizontal = 28.dp)
+            .padding(top = 40.dp, bottom = 40.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .size(100.dp)
+                .background(Color(0xFFD32F2F).copy(alpha = 0.15f), RoundedCornerShape(28.dp)),
+            contentAlignment = Alignment.Center
+        ) { Text("🔋", fontSize = 48.sp) }
+
+        Spacer(Modifier.height(24.dp))
+
+        Text(
+            "Matikan Optimasi Baterai",
+            fontSize = 26.sp,
+            fontWeight = FontWeight.ExtraBold,
+            color = Color.White,
+            textAlign = TextAlign.Center
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "WAJIB agar Ungker tetap aktif di latar belakang dan tidak dimatikan oleh sistem.",
+            fontSize = 14.sp,
+            color = Color(0xFF94A3B8),
+            textAlign = TextAlign.Center
+        )
+
+        Spacer(Modifier.height(28.dp))
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B)),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Column(modifier = Modifier.padding(20.dp)) {
+                Text(
+                    "💡 Mengapa ini wajib?",
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White,
+                    fontSize = 15.sp
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Android secara agresif mematikan aplikasi yang berjalan lama untuk hemat baterai. " +
+                    "Jika tidak dimatikan, Ungker mungkin gagal mengunci aplikasi saat kamu membutuhkannya.",
+                    color = Color(0xFF94A3B8),
+                    fontSize = 13.sp,
+                    lineHeight = 20.sp
+                )
+            }
+        }
+
+        Spacer(Modifier.height(32.dp))
+
+        Button(
+            onClick = { CompatibilityUtils.requestIgnoreBatteryOptimization(context) },
+            modifier = Modifier.fillMaxWidth().height(56.dp),
+            shape = RoundedCornerShape(16.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = if (isIgnored) Color(0xFF4ADE80) else Color(0xFFD32F2F)
+            )
+        ) {
+            if (isIgnored) {
+                Icon(Icons.Default.Check, null, tint = Color.White)
+                Spacer(Modifier.width(8.dp))
+                Text("Sudah Diizinkan ✓", fontWeight = FontWeight.Bold, color = Color.White)
+            } else {
+                Text("Matikan Optimasi Baterai →", fontWeight = FontWeight.Bold)
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
+
+        if (isIgnored) {
+            TextButton(
+                onClick = { onNext() },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    "Lanjut →",
+                    color = Color(0xFF4ADE80),
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 16.sp
+                )
+            }
+        }
+
+        Spacer(Modifier.weight(1f))
+
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            repeat(totalPages) { i ->
+                val isActive = i == pageIndex
+                Box(
+                    modifier = Modifier
+                        .size(if (isActive) 24.dp else 8.dp, 8.dp)
+                        .clip(CircleShape)
+                        .background(if (isActive) Color(0xFFD32F2F) else Color(0xFF334155))
+                )
+            }
+        }
+    }
+}
+
 // ── Halaman Lokasi GPS ─────────────────────────────────────────────────────────
 
 @Composable
 fun GpsLocationPage(
     pageIndex: Int,
     totalPages: Int,
-    onLocationObtained: (Double, Double, Int) -> Unit,
+    onLocationObtained: (Double, Double, Int, String) -> Unit,
     onNext: () -> Unit
 ) {
     val context = LocalContext.current
@@ -751,6 +886,7 @@ fun GpsLocationPage(
     var isLoading by remember { mutableStateOf(false) }
     var currentLocation by remember { mutableStateOf<Pair<Double, Double>?>(null) }
     var currentTimezone by remember { mutableIntStateOf(7) }
+    var currentCityName by remember { mutableStateOf("Jakarta") } // Default Jakarta
     var errorMessage by remember { mutableStateOf<String?>(null) }
     
     // Animation for pulsing circle (Sonar effect)
@@ -785,6 +921,8 @@ fun GpsLocationPage(
         if (granted) {
             // Start getting location automatically after permission granted
             errorMessage = null
+            currentLocation = null
+            // Will be called via LaunchedEffect below
         }
     }
     
@@ -820,6 +958,7 @@ fun GpsLocationPage(
                     // Use last location if fresh (less than 10 mins old)
                     currentLocation = Pair(location.latitude, location.longitude)
                     currentTimezone = ((location.longitude + 7.5) / 15).toInt().coerceIn(-12, 14).let { if (it == 0) 7 else it }
+                    currentCityName = findNearestCity(location.latitude, location.longitude)
                     isLoading = false
                     timeoutHandler.removeCallbacks(timeoutRunnable)
                 } else {
@@ -834,6 +973,7 @@ fun GpsLocationPage(
                             result.lastLocation?.let { loc ->
                                 currentLocation = Pair(loc.latitude, loc.longitude)
                                 currentTimezone = ((loc.longitude + 7.5) / 15).toInt().coerceIn(-12, 14).let { if (it == 0) 7 else it }
+                                currentCityName = findNearestCity(loc.latitude, loc.longitude)
                             }
                             isLoading = false
                             timeoutHandler.removeCallbacks(timeoutRunnable)
@@ -955,8 +1095,9 @@ fun GpsLocationPage(
                         Text("Lokasi Berhasil Dikunci", color = Color.White, fontWeight = FontWeight.ExtraBold)
                     }
                     Spacer(Modifier.height(12.dp))
-                    Text("Koordinat: ${String.format(Locale.US, "%.4f", currentLocation!!.first)}, ${String.format(Locale.US, "%.4f", currentLocation!!.second)}", color = Color(0xFFD1FAE5), fontSize = 13.sp)
-                    Text("Zona Waktu: UTC+${currentTimezone}", color = Color(0xFFD1FAE5), fontSize = 13.sp)
+                    Text("📍 $currentCityName", color = Color(0xFFD1FAE5), fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                    Text("Koordinat: ${String.format(Locale.US, "%.4f", currentLocation!!.first)}, ${String.format(Locale.US, "%.4f", currentLocation!!.second)}", color = Color(0xFFD1FAE5), fontSize = 12.sp)
+                    Text("Zona Waktu: UTC+${currentTimezone}", color = Color(0xFFD1FAE5), fontSize = 12.sp)
                 } else {
                     Text(
                         if (hasLocationPermission) "GPS belum aktif" else "Izin Lokasi Belum Ada",
@@ -1005,7 +1146,10 @@ fun GpsLocationPage(
             }
             
             TextButton(
-                onClick = { onLocationObtained(currentLocation?.first ?: -6.2088, currentLocation?.second ?: 106.8456, currentTimezone) },
+                onClick = { 
+                    val cityName = if (currentLocation != null) findNearestCity(currentLocation!!.first, currentLocation!!.second) else "Jakarta (Default)"
+                    onLocationObtained(currentLocation?.first ?: -6.2088, currentLocation?.second ?: 106.8456, currentTimezone, cityName) 
+                },
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(

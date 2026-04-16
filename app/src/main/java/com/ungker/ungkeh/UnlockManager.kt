@@ -33,10 +33,11 @@ object UnlockManager {
         prefs.setQuranPagesReadForUnlock(0) // Reset pages read
     }
 
-    fun activateHardLockUntilTomorrow(prefs: com.ungker.ungkeh.data.PreferenceManager) {
+    fun activateHardLockUntilTomorrow(prefs: com.ungker.ungkeh.data.PreferenceManager, reason: String = "ikhlas") {
         val todayStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
         prefs.setHardLockedUntilTomorrow(true)
         prefs.setHardLockDate(todayStr)
+        prefs.setHardLockReason(reason)
         prefs.setHasChosenIkhlasToday(true)
         prefs.setIsInUnlockChallenge(false)
         prefs.setQuranPagesReadForUnlock(0) // Reset pages read
@@ -49,6 +50,7 @@ object UnlockManager {
         if (prefs.isHardLockedUntilTomorrow() && prefs.getHardLockDate() != todayStr) {
             prefs.setHardLockedUntilTomorrow(false)
             prefs.setHardLockDate(todayStr)
+            prefs.setHardLockReason("") // Reset hard lock reason each new day
         }
 
         // Reset social media daily stats if date has changed

@@ -34,19 +34,23 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+import androidx.core.view.WindowCompat
+
 class MainActivity : ComponentActivity() {
 
     @RequiresApi(Build.VERSION_CODES.O)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
 
-        // Cek onboarding
+        // Check onboarding
         val sp0 = getSharedPreferences("UNGKER_PREF", Context.MODE_PRIVATE)
         if (!sp0.getBoolean("onboarding_done", false)) {
             startActivity(Intent(this, OnboardingActivity::class.java))
-            finish(); return
+            finish()
+            return
         }
-
+        
         // Ensure daily stats are reset
         CreditUtils.checkDailyReset(this)
 

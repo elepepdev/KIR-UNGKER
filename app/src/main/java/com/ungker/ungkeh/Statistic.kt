@@ -432,6 +432,24 @@ fun StatistikScreen() {
         // ── CARD: BATASAN HARIAN ─────────────────────────────────────────────
         item {
             Spacer(Modifier.height(16.dp))
+            
+            // Hitung blocked apps usage separately
+            var blockedAppsUsageMs by remember { mutableLongStateOf(0L) }
+            LaunchedEffect(todayMs) {
+                withContext(Dispatchers.IO) {
+                    val cal = Calendar.getInstance().apply {
+                        set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0)
+                        set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+                    }
+                    val usageMap = calcUsageFromEvents(context, cal.timeInMillis, System.currentTimeMillis())
+                    val blockedApps = sp.getStringSet("blocked_apps", emptySet()) ?: emptySet()
+                    blockedAppsUsageMs = usageMap.entries.filter { it.key in blockedApps }.sumOf { it.value }
+                }
+            }
+            
+            val blockedApps = sp.getStringSet("blocked_apps", emptySet()) ?: emptySet()
+            val hasBlockedApps = blockedApps.isNotEmpty()
+            
             Card(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                 shape    = RoundedCornerShape(20.dp),
@@ -439,63 +457,96 @@ fun StatistikScreen() {
                 elevation = CardDefaults.cardElevation(2.dp)
             ) {
                 Column(Modifier.padding(20.dp)) {
-                    Row(Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.Top
-                    ) {
-                        Column {
-                            Text("Batasan Harian",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold, color = textPrimC())
-                            Spacer(Modifier.height(4.dp))
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("Tersisa ", style = MaterialTheme.typography.bodySmall, color = textSecC())
-                                Text(sisaMs.toHhMm(),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    fontWeight = FontWeight.Bold, color = statusColor)
-                                Text(" sebelum kelewat batas",
-                                    style = MaterialTheme.typography.bodySmall, color = textSecC())
-                            }
-                        }
-                        Box(
-                            modifier = Modifier.size(40.dp).clip(CircleShape)
-                                .background(statusColor.copy(alpha = 0.15f)),
-                            contentAlignment = Alignment.Center
-                        ) { Icon(Icons.Default.Timer, null, tint = statusColor, modifier = Modifier.size(18.dp)) }
-                    }
+                    Text("Batasan Harian",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold, color = textPrimC())
+                    
                     Spacer(Modifier.height(16.dp))
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("TERPAKAI: ${todayMs.toHhMm()}",
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold, color = textPrimC())
-                        Text("BATAS: $limitText",
-                            style = MaterialTheme.typography.labelSmall, color = textMutC())
+                    
+                    // Bar 1: Total Social Media Usage
+                    val totalUsageColor = when {
+                        todayMs >= normalLimitMs -> Color(0xFFBC4749) // Red - over limit
+                        todayMs >= normalLimitMs * 0.75f -> Color(0xFFF59E0B) // Amber - 75-100%
+                        else -> Color(0xFF52B788) // Green - under limit
                     }
-                    Spacer(Modifier.height(8.dp))
+                    
+                    Text("Total Sosial Media",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = textSecC())
+                    Spacer(Modifier.height(4.dp))
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text(todayMs.toHhMm(),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold, color = totalUsageColor)
+                        Text("/ $limitText",
+                            style = MaterialTheme.typography.bodySmall, color = textMutC())
+                    }
+                    Spacer(Modifier.height(6.dp))
                     Box(
-                        Modifier.fillMaxWidth().height(14.dp)
-                            .clip(RoundedCornerShape(7.dp)).background(trackBg())
+                        Modifier.fillMaxWidth().height(12.dp)
+                            .clip(RoundedCornerShape(6.dp)).background(trackBg())
                     ) {
-                        val greenFrac = (todayMs.toFloat() / normalLimitMs).coerceIn(0f, 1f)
-                        Box(Modifier.fillMaxWidth(greenFrac).fillMaxHeight()
-                            .clip(RoundedCornerShape(7.dp))
-                            .background(Brush.horizontalGradient(listOf(Color(0xFF43A047), Color(0xFFFFA000)))))
-                        if (todayMs > normalLimitMs) {
-                            val overFrac  = ((todayMs - normalLimitMs).toFloat() / (warnLimitMs - normalLimitMs)).coerceIn(0f, 1f)
-                            val startFrac = normalLimitMs.toFloat() / warnLimitMs
-                            Box(Modifier.fillMaxWidth(startFrac + overFrac * (1f - startFrac))
-                                .fillMaxHeight().clip(RoundedCornerShape(7.dp))
-                                .background(Color(0xFFEF5350).copy(alpha = 0.85f)))
+                        val frac = (todayMs.toFloat() / normalLimitMs).coerceIn(0f, 1f)
+                        Box(Modifier.fillMaxWidth(frac).fillMaxHeight()
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(totalUsageColor))
+                    }
+                    
+                    // Bar 2: Blocked Apps Usage (only if blocked_apps is not empty)
+                    if (hasBlockedApps) {
+                        Spacer(Modifier.height(16.dp))
+                        
+                        val blockedUsageColor = when {
+                            blockedAppsUsageMs >= normalLimitMs -> Color(0xFFBC4749)
+                            blockedAppsUsageMs >= normalLimitMs * 0.75f -> Color(0xFFF59E0B)
+                            else -> Color(0xFF52B788)
+                        }
+                        
+                        Text("Aplikasi Terblokir",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = textSecC())
+                        Spacer(Modifier.height(4.dp))
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(blockedAppsUsageMs.toHhMm(),
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold, color = blockedUsageColor)
+                            Text("/ $limitText",
+                                style = MaterialTheme.typography.bodySmall, color = textMutC())
+                        }
+                        Spacer(Modifier.height(6.dp))
+                        Box(
+                            Modifier.fillMaxWidth().height(12.dp)
+                                .clip(RoundedCornerShape(6.dp)).background(trackBg())
+                        ) {
+                            val frac = (blockedAppsUsageMs.toFloat() / normalLimitMs).coerceIn(0f, 1f)
+                            Box(Modifier.fillMaxWidth(frac).fillMaxHeight()
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(blockedUsageColor))
                         }
                     }
-                    Spacer(Modifier.height(8.dp))
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("WAJAR", style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold, color = Color(0xFF43A047))
-                        Text("CUKUP", style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold, color = Color(0xFFFFA000))
-                        Text("KELEWAT BATAS", style = MaterialTheme.typography.labelSmall,
-                            fontWeight = FontWeight.Bold, color = Color(0xFFE53935))
+                    
+                    Spacer(Modifier.height(12.dp))
+                    
+                    // Legend
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.size(8.dp).background(Color(0xFF52B788), RoundedCornerShape(2.dp)))
+                            Spacer(Modifier.width(4.dp))
+                            Text("< 75%", style = MaterialTheme.typography.labelSmall, color = textSecC())
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.size(8.dp).background(Color(0xFFF59E0B), RoundedCornerShape(2.dp)))
+                            Spacer(Modifier.width(4.dp))
+                            Text("75-100%", style = MaterialTheme.typography.labelSmall, color = textSecC())
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.size(8.dp).background(Color(0xFFBC4749), RoundedCornerShape(2.dp)))
+                            Spacer(Modifier.width(4.dp))
+                            Text("> 100%", style = MaterialTheme.typography.labelSmall, color = textSecC())
+                        }
                     }
                 }
             }

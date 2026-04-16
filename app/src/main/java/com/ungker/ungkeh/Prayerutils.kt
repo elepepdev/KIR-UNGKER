@@ -19,6 +19,11 @@ data class PrayerTimes(
     val ashar: String,
     val maghrib: String,
     val isya: String,
+    val subuhSec: Double,
+    val dzuhurSec: Double,
+    val asharSec: Double,
+    val maghribSec: Double,
+    val isyaSec: Double,
     val syuruqDecimal: Double,   // untuk arc matahari
     val maghribDecimal: Double,  // untuk arc matahari
     val nowDecimal: Double,      // jam sekarang dalam desimal
@@ -75,12 +80,6 @@ val INDONESIA_CITIES: List<CityLocation> = listOf(
 
 /**
  * Menghitung waktu sholat sesuai metode Kemenag RI.
- * @param year, month, day  — tanggal Masehi
- * @param lat, lng           — koordinat desimal (negatif = S/W)
- * @param tz                 — offset zona waktu dari UTC (WIB=7, WITA=8, WIT=9)
- * @param fajrAngle          — sudut Subuh (20° sesuai Kemenag)
- * @param ishaAngle          — sudut Isya  (18° sesuai Kemenag)
- * @param ihtiyat            — ihtiyat/kehati-hatian dalam menit (default 2)
  */
 fun hitungWaktuSholat(
     year: Int, month: Int, day: Int,
@@ -139,18 +138,27 @@ fun hitungWaktuSholat(
 
     // ── 7. Format ke HH:MM dengan ihtiyat ───────────────────────────────────
     fun Double.toHHMM(addIhtiyat: Boolean = true): String {
-        val total = this + if (addIhtiyat) ihtiyat / 60.0 else 0.0
-        val h = total.toInt() % 24
-        var mn = ((total % 1.0) * 60.0).let { round(it).toInt() }
+        val total = (this + if (addIhtiyat) ihtiyat / 60.0 else 0.0).let { 
+            if (it < 0) it + 24 else if (it >= 24) it - 24 else it 
+        }
+        val h = total.toInt()
+        var mn = ((total % 1.0) * 60.0).let { Math.round(it).toInt() }
         val hFinal = if (mn == 60) { mn = 0; (h + 1) % 24 } else h
         return String.format(Locale.US, "%02d:%02d", hFinal, mn)
     }
 
-    // Jam sekarang dalam desimal lokal
-    val cal = Calendar.getInstance()
-    val hourNow = cal.get(Calendar.HOUR_OF_DAY)
-    val minNow = cal.get(Calendar.MINUTE)
-    val secNow = cal.get(Calendar.SECOND)
+    fun Double.toSec(addIhtiyat: Boolean = true): Double {
+        val total = (this + if (addIhtiyat) ihtiyat / 60.0 else 0.0).let {
+            if (it < 0) it + 24 else if (it >= 24) it - 24 else it
+        }
+        return total * 3600.0
+    }
+
+    // Jam sekarang dalam desimal lokal (Waspada: ini pakai timezone sistem!)
+    val cal = java.util.Calendar.getInstance()
+    val hourNow = cal.get(java.util.Calendar.HOUR_OF_DAY)
+    val minNow = cal.get(java.util.Calendar.MINUTE)
+    val secNow = cal.get(java.util.Calendar.SECOND)
     val nowDecimal = hourNow.toDouble() + minNow / 60.0 + secNow / 3600.0
 
     return PrayerTimes(
@@ -160,10 +168,39 @@ fun hitungWaktuSholat(
         ashar   = tAshar.toHHMM(),
         maghrib = tMaghrib.toHHMM(),
         isya    = tIsya.toHHMM(),
+        subuhSec = tSubuh.toSec(),
+        dzuhurSec = transit.toSec(),
+        asharSec = tAshar.toSec(),
+        maghribSec = tMaghrib.toSec(),
+        isyaSec = tIsya.toSec(),
         syuruqDecimal  = tSyuruq + ihtiyat / 60.0,
         maghribDecimal = tMaghrib + ihtiyat / 60.0,
         nowDecimal     = nowDecimal,
     )
+}
+
+/** Fungsi pembantu untuk mengecek apakah waktu saat ini berada dalam jendela sholat secara presisi */
+fun checkPrayerWindow(prayerTimes: Map<String, Double>, nowSec: Double, windowSec: Double): String? {
+    for ((name, pSec) in prayerTimes) {
+        // Handle midnight wrap-around for the window
+        if (nowSec >= pSec && nowSec <= pSec + windowSec) return name
+        // Jika window melampaui 24 jam (misal Isya jam 23:55, window 10 menit -> sampai 00:05)
+        if (pSec + windowSec > 86400.0) {
+            val overflow = (pSec + windowSec) - 86400.0
+            if (nowSec >= 0 && nowSec <= overflow) return name
+        }
+    }
+    return null
+}
+
+/** Mengambil detik saat ini dalam timezone yang spesifik agar sinkron dengan perhitungan sholat */
+fun getNowSecInTz(tz: Int): Double {
+    val tzId = if (tz >= 0) "GMT+$tz" else "GMT$tz"
+    val cal = java.util.Calendar.getInstance(java.util.TimeZone.getTimeZone(tzId))
+    return cal.get(java.util.Calendar.HOUR_OF_DAY) * 3600.0 +
+           cal.get(java.util.Calendar.MINUTE) * 60.0 +
+           cal.get(java.util.Calendar.SECOND) +
+           cal.get(java.util.Calendar.MILLISECOND) / 1000.0
 }
 
 private fun Double.toRadians(): Double = this * PI / 180.0

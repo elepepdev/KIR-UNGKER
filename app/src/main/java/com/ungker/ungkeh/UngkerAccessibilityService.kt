@@ -61,6 +61,9 @@ class UngkerAccessibilityService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        // Self-healing: ensure instance is set in case it was cleared
+        instance = this
+        
         if (event == null) return
         if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
 
