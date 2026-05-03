@@ -7,28 +7,16 @@ plugins {
 
 android {
     namespace = "com.ungker.ungkeh"
-    compileSdk {
-        version = release(36) {
-            minorApiLevel = 1
-        }
-    }
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "com.ungker.ungkeh"
         minSdk = 24
-        targetSdk = 36
-        versionCode = 4
-        versionName = "1.1.0"
+        targetSdk = 35
+        versionCode = 7
+        versionName = "1.2.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-
-        val localProperties = Properties()
-        val localPropertiesFile = rootProject.file("local.properties")
-        if (localPropertiesFile.exists()) {
-            localProperties.load(localPropertiesFile.inputStream())
-        }
-        val anthropicApiKey = localProperties.getProperty("ANTHROPIC_API_KEY") ?: ""
-        buildConfigField("String", "ANTHROPIC_API_KEY", "\"$anthropicApiKey\"")
     }
 
     buildFeatures {
@@ -37,7 +25,8 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -73,6 +62,7 @@ dependencies {
     implementation(libs.androidx.compose.material.icons.extended)
     implementation(libs.androidx.ui.graphics)
     implementation(libs.play.services.location)
+    implementation(libs.coil.compose)
     implementation(libs.androidx.core.splashscreen)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

@@ -14,12 +14,20 @@ import android.os.Looper
 import android.provider.Settings
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.LocationOn
@@ -28,9 +36,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
@@ -48,15 +58,9 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.graphicsLayer
 import com.google.android.gms.location.*
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.core.view.WindowCompat
 
@@ -87,6 +91,11 @@ class OnboardingActivity : ComponentActivity() {
                         val finalTz = tz ?: 7
                         val finalCity = cityName ?: "Jakarta (Default)"
                         
+                        // Set Deep Friction berdasarkan role:
+                        // - Personal: OFF secara default (tidak perlu friction, hanya self-control)
+                        // - Parent: ON secara default (orang tua mengontrol anak)
+                        val defaultDeepFriction = role == "parent"
+                        
                         sp.edit {
                             putString("user_name", name.trim().ifBlank { "Fulan#$uid" })
                             putStringSet("blocked_apps", selectedApps)
@@ -98,6 +107,7 @@ class OnboardingActivity : ComponentActivity() {
                             putBoolean("sholat_gps_mode", lat != null) // Set TRUE jika GPS berhasil didapat
                             putString("user_role", role)
                             putString("parent_password", password)
+                            putBoolean("feature_deep_friction_enabled", defaultDeepFriction)
                             
                             putBoolean("onboarding_done", true)
                         }
@@ -124,30 +134,10 @@ internal data class OnboardingPage(
 )
 
 internal val pages = listOf(
-    OnboardingPage(
-        "🛡️",
-        "Selamat Datang di Ungker",
-        "Ungker hadir untuk membantumu mengendalikan waktu layar dan fokus pada hal yang benar-benar penting.",
-        Color(0xFF2E7D32)
-    ),
-    OnboardingPage(
-        "📵",
-        "Kunci Aplikasi Pengganggu",
-        "Ungker akan mengunci otomatis aplikasi media sosial & game saat kamu sudah melewati batas waktu harian.",
-        Color(0xFF1565C0)
-    ),
-    OnboardingPage(
-        "📖",
-        "Baca Qur'an, Buka Kunci",
-        "Cara membuka kunci? Cukup baca beberapa ayat Al-Qur'an. Produktif dan berkah sekaligus.",
-        Color(0xFF6A1B9A)
-    ),
-    OnboardingPage(
-        "🕌",
-        "Pengingat Waktu Sholat",
-        "Layar akan terkunci otomatis saat waktu sholat tiba. Jangan sampai gadget melalaikanmu dari kewajiban.",
-        Color(0xFF00695C)
-    ),
+    OnboardingPage("🛡️", "welcome_title", "welcome_desc", Color(0xFF2E7D32)),
+    OnboardingPage("📵", "lock_app_title", "lock_app_desc", Color(0xFF1565C0)),
+    OnboardingPage("📖", "read_quran_title", "read_quran_desc", Color(0xFF6A1B9A)),
+    OnboardingPage("🕌", "prayer_title", "prayer_desc", Color(0xFF00695C)),
 )
 
 // ── Composable utama ──────────────────────────────────────────────────────────
@@ -155,6 +145,7 @@ internal val pages = listOf(
 @Composable
 fun OnboardingScreen(onFinish: (String, Set<String>, Long, Double?, Double?, Int, String, String, String) -> Unit) {
     var currentPage by remember { mutableIntStateOf(0) }
+    var selectedLanguage by remember { mutableStateOf("en") }
     var selectedApps by remember { mutableStateOf(setOf<String>()) }
     var selectedTimeLimit by remember { mutableLongStateOf(60L) } // Default 1 Hour
     var gpsLocation by remember { mutableStateOf<Pair<Double, Double>?>(null) }
@@ -163,7 +154,7 @@ fun OnboardingScreen(onFinish: (String, Set<String>, Long, Double?, Double?, Int
     var userRole by remember { mutableStateOf("personal") }
     var parentPassword by remember { mutableStateOf("") }
 
-    val totalSteps = pages.size + 8 // Intro(4) + Izin(1) + Accessibility(1) + Battery(1) + GPS(1) + PilihApp(1) + Waktu(1) + Role(1) + Password(1) = 12
+    val totalSteps = 5 // Page 0: Intro+Lang, Page 1: All Permissions, Page 2: App Selection, Page 3: Time Limit, Page 4: Role+Name
 
     Box(
         modifier = Modifier
@@ -180,78 +171,56 @@ fun OnboardingScreen(onFinish: (String, Set<String>, Long, Double?, Double?, Int
             },
             label = "OnboardingPage"
         ) { page ->
-            when {
-                page < pages.size -> InstructionPage(
-                    data = pages[page],
+            when (page) {
+                0 -> IntroWithLanguagePage(
                     pageIndex = page,
                     totalPages = totalSteps,
+                    selectedLanguage = selectedLanguage,
+                    onLanguageSelected = { lang ->
+                        selectedLanguage = lang
+                        LocaleManager.setLanguage(lang)
+                    },
                     onNext = { currentPage++ }
                 )
-                page == pages.size -> PermissionPage(
+                1 -> AllPermissionsPage(
                     pageIndex = page,
                     totalPages = totalSteps,
-                    onNext = { currentPage++ }
-                )
-                page == pages.size + 1 -> AccessibilityPage(
-                    pageIndex = page,
-                    totalPages = totalSteps,
-                    onNext = { currentPage++ }
-                )
-                page == pages.size + 2 -> BatteryOptimizationPage(
-                    pageIndex = page,
-                    totalPages = totalSteps,
-                    onNext = { currentPage++ }
-                )
-                page == pages.size + 3 -> GpsLocationPage(
-                    pageIndex = page,
-                    totalPages = totalSteps,
+                    onNext = { currentPage++ },
                     onLocationObtained = { lat, lng, tz, cityName ->
                         gpsLocation = Pair(lat, lng)
                         gpsTimezone = tz
                         gpsCityName = cityName
-                        currentPage++
-                    },
-                    onNext = { currentPage++ }
+                    }
                 )
-                page == pages.size + 4 -> AppSelectionOnboardingPage(
+                2 -> AppSelectionOnboardingPage(
                     pageIndex = page,
                     totalPages = totalSteps,
                     selectedApps = selectedApps,
-                    onAppsSelected = { 
+                    onAppsSelected = {
                         selectedApps = it
                         currentPage++
                     }
                 )
-                page == pages.size + 5 -> TimeLimitSelectionPage(
+                3 -> TimeLimitSelectionPage(
                     pageIndex = page,
                     totalPages = totalSteps,
                     selectedLimit = selectedTimeLimit,
                     onLimitSelected = { selectedTimeLimit = it },
                     onNext = { currentPage++ }
                 )
-                page == pages.size + 6 -> UserRoleSelectionPage(
+                4 -> RolePasswordNamePage(
                     pageIndex = page,
                     totalPages = totalSteps,
-                    selectedRole = userRole,
-                    onRoleSelected = { 
-                        userRole = it
-                        if (it == "personal") {
-                            currentPage += 2 // Skip password page
-                        } else {
-                            currentPage++
-                        }
+                    userRole = userRole,
+                    parentPassword = parentPassword,
+                    onRoleChanged = { userRole = it },
+                    onPasswordChanged = { parentPassword = it },
+                    onFinish = { name ->
+                        onFinish(name, selectedApps, selectedTimeLimit, gpsLocation?.first, gpsLocation?.second, gpsTimezone, userRole, parentPassword, gpsCityName)
                     }
                 )
-                page == pages.size + 7 -> ParentPasswordPage(
-                    pageIndex = page,
-                    totalPages = totalSteps,
-                    onPasswordSet = { 
-                        parentPassword = it
-                        currentPage++
-                    }
-                )
-                else -> NameInputPage(onFinish = { name -> 
-                    onFinish(name, selectedApps, selectedTimeLimit, gpsLocation?.first, gpsLocation?.second, gpsTimezone, userRole, parentPassword, gpsCityName) 
+                else -> NameInputPage(onFinish = { name ->
+                    onFinish(name, selectedApps, selectedTimeLimit, gpsLocation?.first, gpsLocation?.second, gpsTimezone, userRole, parentPassword, gpsCityName)
                 })
             }
         }
@@ -279,6 +248,7 @@ internal fun InstructionPage(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .padding(horizontal = 32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
@@ -302,7 +272,7 @@ internal fun InstructionPage(
         Spacer(Modifier.height(40.dp))
 
         Text(
-            data.title,
+            LocaleManager.L(data.title),
             fontSize = 26.sp,
             fontWeight = FontWeight.ExtraBold,
             color = Color.White,
@@ -313,7 +283,7 @@ internal fun InstructionPage(
         Spacer(Modifier.height(16.dp))
 
         Text(
-            data.desc,
+            LocaleManager.L(data.desc),
             fontSize = 15.sp,
             color = Color(0xFF94A3B8),
             textAlign = TextAlign.Center,
@@ -351,10 +321,329 @@ internal fun InstructionPage(
             colors = ButtonDefaults.buttonColors(containerColor = data.accent)
         ) {
             Text(
-                "Lanjut →",
+                LocaleManager.L("onboarding_next"),
                 fontWeight = FontWeight.Bold,
                 fontSize = 16.sp
             )
+        }
+    }
+}
+
+// ── Halaman Intro + Language (Gabungan) ────────────────────────────────────
+
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+fun IntroWithLanguagePage(
+    pageIndex: Int,
+    totalPages: Int,
+    selectedLanguage: String,
+    onLanguageSelected: (String) -> Unit,
+    onNext: () -> Unit
+) {
+    val pagerState = rememberPagerState(pageCount = { pages.size + 1 })
+    val coroutineScope = rememberCoroutineScope()
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF0F172A))
+            .padding(horizontal = 32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+        ) { page ->
+            if (page < pages.size) {
+                IntroSlide(
+                    data = pages[page],
+                    modifier = Modifier.fillMaxSize()
+                )
+            } else {
+                LanguageSelectionSlide(
+                    selectedLanguage = selectedLanguage,
+                    onLanguageSelected = onLanguageSelected,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            repeat(totalPages) { i ->
+                val isActive = i == pagerState.currentPage
+                Box(
+                    modifier = Modifier
+                        .size(if (isActive) 24.dp else 8.dp, 8.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (isActive) Color(0xFF4ADE80) else Color(0xFF334155)
+                        )
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(32.dp))
+
+        Button(
+            onClick = {
+                if (pagerState.currentPage < pages.size) {
+                    coroutineScope.launch {
+                        pagerState.animateScrollToPage(pagerState.currentPage + 1)
+                    }
+                } else {
+                    onNext()
+                }
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(56.dp),
+            shape = RoundedCornerShape(16.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4ADE80))
+        ) {
+            Text(
+                LocaleManager.L("onboarding_next"),
+                fontWeight = FontWeight.Bold,
+                fontSize = 16.sp
+            )
+        }
+
+        Spacer(modifier = Modifier.height(40.dp))
+    }
+}
+
+@Composable
+private fun IntroSlide(
+    data: OnboardingPage,
+    modifier: Modifier = Modifier
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "pulse")
+    val scale by infiniteTransition.animateFloat(
+        initialValue = 1f, targetValue = 1.08f,
+        animationSpec = infiniteRepeatable(
+            tween(1200, easing = FastOutSlowInEasing),
+            RepeatMode.Reverse
+        ), label = "emojiScale"
+    )
+
+    Column(
+        modifier = modifier.verticalScroll(rememberScrollState()),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .size(120.dp)
+                .background(
+                    data.accent.copy(alpha = 0.15f),
+                    RoundedCornerShape(32.dp)
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                data.emoji,
+                fontSize = (56 * scale).sp
+            )
+        }
+
+        Spacer(Modifier.height(40.dp))
+
+        Text(
+            LocaleManager.L(data.title),
+            fontSize = 26.sp,
+            fontWeight = FontWeight.ExtraBold,
+            color = Color.White,
+            textAlign = TextAlign.Center,
+            lineHeight = 32.sp
+        )
+
+        Spacer(Modifier.height(16.dp))
+
+        Text(
+            LocaleManager.L(data.desc),
+            fontSize = 15.sp,
+            color = Color(0xFF94A3B8),
+            textAlign = TextAlign.Center,
+            lineHeight = 24.sp
+        )
+    }
+}
+
+@Composable
+private fun LanguageSelectionSlide(
+    selectedLanguage: String,
+    onLanguageSelected: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Text("🌐", fontSize = 64.sp)
+
+        Spacer(Modifier.height(24.dp))
+
+        Text(
+            LocaleManager.L("select_language"),
+            fontSize = 26.sp,
+            fontWeight = FontWeight.ExtraBold,
+            color = Color.White,
+            textAlign = TextAlign.Center
+        )
+
+        Spacer(Modifier.height(8.dp))
+
+        Text(
+            LocaleManager.L("onboarding_lang_title"),
+            fontSize = 14.sp,
+            color = Color(0xFF94A3B8),
+            textAlign = TextAlign.Center
+        )
+
+        Spacer(Modifier.height(40.dp))
+
+        LanguageOptionCard(
+            flag = "🇺🇸",
+            language = LocaleManager.L("onboarding_lang_english"),
+            isSelected = selectedLanguage == "en",
+            onClick = { onLanguageSelected("en") }
+        )
+
+        Spacer(Modifier.height(16.dp))
+
+        LanguageOptionCard(
+            flag = "🇮🇩",
+            language = LocaleManager.L("onboarding_lang_indonesian"),
+            isSelected = selectedLanguage == "id",
+            onClick = { onLanguageSelected("id") }
+        )
+    }
+}
+
+// ── Halaman Pemilihan Bahasa ───────────────────────────────────────────
+
+@Composable
+fun LanguageSelectionPage(
+    pageIndex: Int,
+    totalPages: Int,
+    onLanguageSelected: (String) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF0F172A))
+            .padding(32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Text("🌐", fontSize = 64.sp)
+        
+        Spacer(Modifier.height(24.dp))
+        
+        Text(
+            LocaleManager.L("select_language"),
+            fontSize = 26.sp,
+            fontWeight = FontWeight.ExtraBold,
+            color = Color.White,
+            textAlign = TextAlign.Center
+        )
+        
+        Spacer(Modifier.height(8.dp))
+        
+        Text(
+            LocaleManager.L("onboarding_lang_title"),
+            fontSize = 14.sp,
+            color = Color(0xFF94A3B8),
+            textAlign = TextAlign.Center
+        )
+        
+        Spacer(Modifier.height(40.dp))
+        
+        // English Option
+        LanguageOptionCard(
+            flag = "🇺🇸",
+            language = LocaleManager.L("onboarding_lang_english"),
+            isSelected = true,
+            onClick = { onLanguageSelected("en") }
+        )
+        
+        Spacer(Modifier.height(16.dp))
+        
+        // Indonesian Option
+        LanguageOptionCard(
+            flag = "🇮🇩",
+            language = LocaleManager.L("onboarding_lang_indonesian"),
+            isSelected = false,
+            onClick = { onLanguageSelected("id") }
+        )
+        
+        Spacer(Modifier.height(40.dp))
+        
+        // Dot indicator
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            repeat(totalPages) { i ->
+                val isActive = i == pageIndex
+                Box(
+                    modifier = Modifier
+                        .size(if (isActive) 24.dp else 8.dp, 8.dp)
+                        .clip(CircleShape)
+                        .background(if (isActive) Color(0xFF4ADE80) else Color(0xFF334155))
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun LanguageOptionCard(
+    flag: String,
+    language: String,
+    isSelected: Boolean,
+    onClick: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { onClick() },
+        colors = CardDefaults.cardColors(
+            containerColor = if (isSelected) Color(0xFF1D4ED8) else Color(0xFF1E293B)
+        ),
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(
+            1.dp,
+            if (isSelected) Color(0xFF4ADE80) else Color(0xFF334155)
+        )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(20.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(flag, fontSize = 28.sp)
+            Spacer(Modifier.width(16.dp))
+            Text(
+                language,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = Color.White,
+                modifier = Modifier.weight(1f)
+            )
+            if (isSelected) {
+                Icon(
+                    Icons.Default.Check,
+                    contentDescription = null,
+                    tint = Color(0xFF4ADE80),
+                    modifier = Modifier.size(24.dp)
+                )
+            }
         }
     }
 }
@@ -411,6 +700,34 @@ fun PermissionPage(pageIndex: Int, totalPages: Int, onNext: () -> Unit) {
     }
 
     val scrollState = rememberScrollState()
+    
+    var showOverlayDisclosure by remember { mutableStateOf(false) }
+    var showUsageDisclosure by remember { mutableStateOf(false) }
+
+    if (showOverlayDisclosure) {
+        PermissionDisclosureDialog(
+            title = LocaleManager.L("perm_overlay_title"),
+            description = LocaleManager.L("perm_overlay_desc"),
+            onDismiss = { showOverlayDisclosure = false },
+            onConfirm = {
+                showOverlayDisclosure = false
+                launcher.launch(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    "package:${context.packageName}".toUri()))
+            }
+        )
+    }
+
+    if (showUsageDisclosure) {
+        PermissionDisclosureDialog(
+            title = LocaleManager.L("perm_usage_title"),
+            description = LocaleManager.L("perm_usage_desc"),
+            onDismiss = { showUsageDisclosure = false },
+            onConfirm = {
+                showUsageDisclosure = false
+                launcher.launch(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+            }
+        )
+    }
 
     Column(
         modifier = Modifier
@@ -432,7 +749,7 @@ fun PermissionPage(pageIndex: Int, totalPages: Int, onNext: () -> Unit) {
         Spacer(Modifier.height(24.dp))
 
         Text(
-            "Aktifkan Izin",
+            LocaleManager.L("perm_enable_btn"),
             fontSize = 26.sp,
             fontWeight = FontWeight.ExtraBold,
             color = Color.White,
@@ -440,7 +757,7 @@ fun PermissionPage(pageIndex: Int, totalPages: Int, onNext: () -> Unit) {
         )
         Spacer(Modifier.height(8.dp))
         Text(
-            "Semua izin berikut WAJIB diaktifkan agar Ungker bisa berjalan.",
+            LocaleManager.L("perm_warning"),
             fontSize = 14.sp,
             color = Color(0xFF94A3B8),
             textAlign = TextAlign.Center
@@ -451,14 +768,11 @@ fun PermissionPage(pageIndex: Int, totalPages: Int, onNext: () -> Unit) {
         // Izin 1: Tampil di atas aplikasi
         PermissionItem(
             emoji = "🪟",
-            title = "Tampil di Atas Aplikasi",
-            desc = "Agar layar kunci bisa muncul di atas aplikasi lain.",
+            title = LocaleManager.L("perm_guide_overlay_title"),
+            desc = LocaleManager.L("perm_guide_overlay_desc"),
             isGranted = hasOverlay,
-            steps = "Pengaturan → Aplikasi Khusus → Tampil di atas aplikasi → Ungker → Izinkan",
-            onGrant = {
-                launcher.launch(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                    "package:${context.packageName}".toUri()))
-            }
+            steps = LocaleManager.L("perm_guide_overlay_steps"),
+            onGrant = { showOverlayDisclosure = true }
         )
 
         Spacer(Modifier.height(12.dp))
@@ -466,13 +780,11 @@ fun PermissionPage(pageIndex: Int, totalPages: Int, onNext: () -> Unit) {
         // Izin 2: Akses Penggunaan
         PermissionItem(
             emoji = "📊",
-            title = "Akses Data Penggunaan",
-            desc = "Untuk mendeteksi aplikasi mana yang sedang aktif.",
+            title = LocaleManager.L("perm_guide_usage_title"),
+            desc = LocaleManager.L("perm_guide_usage_desc"),
             isGranted = hasUsage,
-            steps = "Pengaturan → Privasi → Akses penggunaan → Ungker → Aktifkan",
-            onGrant = {
-                launcher.launch(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
-            }
+            steps = LocaleManager.L("perm_guide_usage_steps"),
+            onGrant = { showUsageDisclosure = true }
         )
 
         Spacer(Modifier.height(12.dp))
@@ -481,10 +793,10 @@ fun PermissionPage(pageIndex: Int, totalPages: Int, onNext: () -> Unit) {
         if (CompatibilityUtils.isXiaomi()) {
             PermissionItem(
                 emoji = "🚀",
-                title = "Xiaomi: Pop-up Latar Belakang",
-                desc = "WAJIB agar layar kunci muncul otomatis di Xiaomi.",
+                title = LocaleManager.L("perm_guide_xiaomi_title"),
+                desc = LocaleManager.L("perm_guide_xiaomi_desc"),
                 isGranted = false, // MIUI tidak lapor status izin ini ke API standar
-                steps = "Pengaturan → Perizinan Lainnya → Tampilkan jendela pop-up saat berjalan di latar belakang → Selalu Izinkan",
+                steps = LocaleManager.L("perm_guide_xiaomi_steps"),
                 onGrant = {
                     CompatibilityUtils.openMiuiPopupPermission(context)
                 }
@@ -496,10 +808,10 @@ fun PermissionPage(pageIndex: Int, totalPages: Int, onNext: () -> Unit) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             PermissionItem(
                 emoji = "🔔",
-                title = "Izin Notifikasi",
-                desc = "Untuk menampilkan notifikasi layar kunci sholat.",
+                title = LocaleManager.L("perm_guide_notif_title"),
+                desc = LocaleManager.L("perm_guide_notif_desc"),
                 isGranted = hasNotif,
-                steps = "Tekan tombol lalu pilih 'Izinkan' pada dialog yang muncul.",
+                steps = LocaleManager.L("perm_guide_notif_steps"),
                 onGrant = {
                     launcher.launch(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
                         putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
@@ -537,7 +849,7 @@ fun PermissionPage(pageIndex: Int, totalPages: Int, onNext: () -> Unit) {
             )
         ) {
             Text(
-                if (allGranted) "Lanjut →" else "Wajib Mengaktifkan Semua Izin",
+                if (allGranted) LocaleManager.L("onboarding_next") else LocaleManager.L("perm_btn_must_enable"),
                 fontWeight = FontWeight.Bold,
                 fontSize = 15.sp,
                 color = if (allGranted) Color.White else Color(0xFF94A3B8)
@@ -584,7 +896,7 @@ fun PermissionItem(
                     onClick = { expanded = !expanded },
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp)
                 ) {
-                    Text("Cara", color = Color(0xFF94A3B8), fontSize = 12.sp)
+                    Text(LocaleManager.L("onboarding_how_to"), color = Color(0xFF94A3B8), fontSize = 12.sp)
                 }
             }
         }
@@ -604,7 +916,7 @@ fun PermissionItem(
                     shape = RoundedCornerShape(10.dp),
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1D4ED8))
                 ) {
-                    Text("Buka Pengaturan →", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    Text(LocaleManager.L("onboarding_go_to_settings"), fontSize = 13.sp, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -618,6 +930,19 @@ fun AccessibilityPage(pageIndex: Int, totalPages: Int, onNext: () -> Unit) {
     val context = LocalContext.current
 
     var hasAccessibility by remember { mutableStateOf(CompatibilityUtils.isAccessibilityServiceEnabled(context)) }
+    var showDisclosure by remember { mutableStateOf(false) }
+
+    if (showDisclosure) {
+        PermissionDisclosureDialog(
+            title = LocaleManager.L("permission_overlay_title"),
+            description = LocaleManager.L("permission_overlay_desc"),
+            onDismiss = { showDisclosure = false },
+            onConfirm = {
+                showDisclosure = false
+                CompatibilityUtils.openAccessibilitySettings(context)
+            }
+        )
+    }
 
     LaunchedEffect(Unit) {
         while (!hasAccessibility) {
@@ -629,6 +954,7 @@ fun AccessibilityPage(pageIndex: Int, totalPages: Int, onNext: () -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .padding(horizontal = 28.dp)
             .padding(top = 40.dp, bottom = 40.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -644,7 +970,7 @@ fun AccessibilityPage(pageIndex: Int, totalPages: Int, onNext: () -> Unit) {
         Spacer(Modifier.height(24.dp))
 
         Text(
-            "Aktifkan Aksesibilitas",
+            LocaleManager.L("accessibility_title"),
             fontSize = 26.sp,
             fontWeight = FontWeight.ExtraBold,
             color = Color.White,
@@ -652,7 +978,7 @@ fun AccessibilityPage(pageIndex: Int, totalPages: Int, onNext: () -> Unit) {
         )
         Spacer(Modifier.height(8.dp))
         Text(
-            "WAJIB untuk layar kunci bekerja di semua HP (Oppo, Xiaomi, Vivo, dll)",
+            LocaleManager.L("accessibility_subtitle"),
             fontSize = 14.sp,
             color = Color(0xFF94A3B8),
             textAlign = TextAlign.Center
@@ -667,30 +993,28 @@ fun AccessibilityPage(pageIndex: Int, totalPages: Int, onNext: () -> Unit) {
         ) {
             Column(modifier = Modifier.padding(20.dp)) {
                 Text(
-                    "📱 Mengapa perlu?",
+                    LocaleManager.L("accessibility_why_title"),
                     fontWeight = FontWeight.Bold,
                     color = Color.White,
                     fontSize = 15.sp
                 )
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "HP Oppo, Xiaomi, Vivo, dll memblokir startActivity dari background service. " +
-                    "Aksesibilitas adalah satu-satunya cara untuk menampilkan layar kunci otomatis.",
+                    LocaleManager.L("accessibility_why_desc"),
                     color = Color(0xFF94A3B8),
                     fontSize = 13.sp,
                     lineHeight = 20.sp
                 )
                 Spacer(Modifier.height(16.dp))
                 Text(
-                    "🔒 Privasi",
+                    LocaleManager.L("accessibility_privacy_title"),
                     fontWeight = FontWeight.Bold,
                     color = Color.White,
                     fontSize = 15.sp
                 )
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "Ungker TIDAK membaca, mengumpulkan, atau mengirim konten layarmu ke mana pun. " +
-                    "Hanya mendeteksi nama aplikasi yang dibuka.",
+                    LocaleManager.L("accessibility_privacy_desc"),
                     color = Color(0xFF4ADE80),
                     fontSize = 13.sp,
                     lineHeight = 20.sp
@@ -701,7 +1025,7 @@ fun AccessibilityPage(pageIndex: Int, totalPages: Int, onNext: () -> Unit) {
         Spacer(Modifier.height(32.dp))
 
         Button(
-            onClick = { CompatibilityUtils.openAccessibilitySettings(context) },
+            onClick = { if (!hasAccessibility) showDisclosure = true },
             modifier = Modifier.fillMaxWidth().height(56.dp),
             shape = RoundedCornerShape(16.dp),
             colors = ButtonDefaults.buttonColors(
@@ -711,9 +1035,9 @@ fun AccessibilityPage(pageIndex: Int, totalPages: Int, onNext: () -> Unit) {
             if (hasAccessibility) {
                 Icon(Icons.Default.Check, null, tint = Color.White)
                 Spacer(Modifier.width(8.dp))
-                Text("Aksesibilitas Aktif ✓", fontWeight = FontWeight.Bold, color = Color.White)
+                Text(LocaleManager.L("accessibility_enabled"), fontWeight = FontWeight.Bold, color = Color.White)
             } else {
-                Text("Buka Pengaturan Aksesibilitas →", fontWeight = FontWeight.Bold)
+                Text(LocaleManager.L("accessibility_disabled"), fontWeight = FontWeight.Bold)
             }
         }
 
@@ -725,7 +1049,7 @@ fun AccessibilityPage(pageIndex: Int, totalPages: Int, onNext: () -> Unit) {
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(
-                    "Lanjut →",
+                    LocaleManager.L("permission_next"),
                     color = Color(0xFF4ADE80),
                     fontWeight = FontWeight.Bold,
                     fontSize = 16.sp
@@ -766,6 +1090,7 @@ fun BatteryOptimizationPage(pageIndex: Int, totalPages: Int, onNext: () -> Unit)
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .padding(horizontal = 28.dp)
             .padding(top = 40.dp, bottom = 40.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -781,7 +1106,7 @@ fun BatteryOptimizationPage(pageIndex: Int, totalPages: Int, onNext: () -> Unit)
         Spacer(Modifier.height(24.dp))
 
         Text(
-            "Matikan Optimasi Baterai",
+            LocaleManager.L("battery_title"),
             fontSize = 26.sp,
             fontWeight = FontWeight.ExtraBold,
             color = Color.White,
@@ -789,7 +1114,7 @@ fun BatteryOptimizationPage(pageIndex: Int, totalPages: Int, onNext: () -> Unit)
         )
         Spacer(Modifier.height(8.dp))
         Text(
-            "WAJIB agar Ungker tetap aktif di latar belakang dan tidak dimatikan oleh sistem.",
+            LocaleManager.L("battery_subtitle"),
             fontSize = 14.sp,
             color = Color(0xFF94A3B8),
             textAlign = TextAlign.Center
@@ -804,15 +1129,14 @@ fun BatteryOptimizationPage(pageIndex: Int, totalPages: Int, onNext: () -> Unit)
         ) {
             Column(modifier = Modifier.padding(20.dp)) {
                 Text(
-                    "💡 Mengapa ini wajib?",
+                    LocaleManager.L("battery_why_title"),
                     fontWeight = FontWeight.Bold,
                     color = Color.White,
                     fontSize = 15.sp
                 )
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "Android secara agresif mematikan aplikasi yang berjalan lama untuk hemat baterai. " +
-                    "Jika tidak dimatikan, Ungker mungkin gagal mengunci aplikasi saat kamu membutuhkannya.",
+                    LocaleManager.L("battery_why_desc"),
                     color = Color(0xFF94A3B8),
                     fontSize = 13.sp,
                     lineHeight = 20.sp
@@ -833,9 +1157,9 @@ fun BatteryOptimizationPage(pageIndex: Int, totalPages: Int, onNext: () -> Unit)
             if (isIgnored) {
                 Icon(Icons.Default.Check, null, tint = Color.White)
                 Spacer(Modifier.width(8.dp))
-                Text("Sudah Diizinkan ✓", fontWeight = FontWeight.Bold, color = Color.White)
+                Text(LocaleManager.L("battery_enabled"), fontWeight = FontWeight.Bold, color = Color.White)
             } else {
-                Text("Matikan Optimasi Baterai →", fontWeight = FontWeight.Bold)
+                Text(LocaleManager.L("battery_disabled"), fontWeight = FontWeight.Bold)
             }
         }
 
@@ -847,7 +1171,7 @@ fun BatteryOptimizationPage(pageIndex: Int, totalPages: Int, onNext: () -> Unit)
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(
-                    "Lanjut →",
+                    LocaleManager.L("permission_next"),
                     color = Color(0xFF4ADE80),
                     fontWeight = FontWeight.Bold,
                     fontSize = 16.sp
@@ -867,6 +1191,263 @@ fun BatteryOptimizationPage(pageIndex: Int, totalPages: Int, onNext: () -> Unit)
                         .background(if (isActive) Color(0xFFD32F2F) else Color(0xFF334155))
                 )
             }
+        }
+    }
+}
+
+// ── Halaman Semua Izin (Gabungan) ───────────────────────────────────────────
+
+@Composable
+fun AllPermissionsPage(
+    pageIndex: Int,
+    totalPages: Int,
+    onNext: () -> Unit,
+    onLocationObtained: (Double, Double, Int, String) -> Unit
+) {
+    val context = LocalContext.current
+
+    var hasOverlay by remember { mutableStateOf(Settings.canDrawOverlays(context)) }
+    var hasUsage by remember { mutableStateOf(CompatibilityUtils.hasUsageStatsPermission(context)) }
+    var hasAccessibility by remember { mutableStateOf(CompatibilityUtils.isAccessibilityServiceEnabled(context)) }
+    var isBatteryIgnored by remember { mutableStateOf(CompatibilityUtils.isBatteryOptimizationIgnored(context)) }
+    var hasLocationPermission by remember { mutableStateOf(
+        ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+        ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+    ) }
+    var hasNotif by remember { mutableStateOf(
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+        } else true
+    ) }
+
+    val allGranted = hasOverlay && hasUsage && hasAccessibility && isBatteryIgnored && hasLocationPermission
+
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        hasOverlay = Settings.canDrawOverlays(context)
+        hasUsage = CompatibilityUtils.hasUsageStatsPermission(context)
+        hasAccessibility = CompatibilityUtils.isAccessibilityServiceEnabled(context)
+        isBatteryIgnored = CompatibilityUtils.isBatteryOptimizationIgnored(context)
+        hasLocationPermission = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+                ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            hasNotif = context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+        }
+    }
+
+    val locationPermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val granted = permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
+                permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
+        hasLocationPermission = granted
+    }
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            kotlinx.coroutines.delay(500)
+            hasOverlay = Settings.canDrawOverlays(context)
+            hasUsage = CompatibilityUtils.hasUsageStatsPermission(context)
+            hasAccessibility = CompatibilityUtils.isAccessibilityServiceEnabled(context)
+            isBatteryIgnored = CompatibilityUtils.isBatteryOptimizationIgnored(context)
+            hasLocationPermission = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+                    ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                hasNotif = context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
+            }
+        }
+    }
+
+    var showOverlayDisclosure by remember { mutableStateOf(false) }
+    var showUsageDisclosure by remember { mutableStateOf(false) }
+    var showAccessibilityDisclosure by remember { mutableStateOf(false) }
+
+    if (showOverlayDisclosure) {
+        PermissionDisclosureDialog(
+            title = LocaleManager.L("perm_overlay_title"),
+            description = LocaleManager.L("perm_overlay_desc"),
+            onDismiss = { showOverlayDisclosure = false },
+            onConfirm = {
+                showOverlayDisclosure = false
+                launcher.launch(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, "package:${context.packageName}".toUri()))
+            }
+        )
+    }
+
+    if (showUsageDisclosure) {
+        PermissionDisclosureDialog(
+            title = LocaleManager.L("perm_usage_title"),
+            description = LocaleManager.L("perm_usage_desc"),
+            onDismiss = { showUsageDisclosure = false },
+            onConfirm = {
+                showUsageDisclosure = false
+                launcher.launch(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+            }
+        )
+    }
+
+    if (showAccessibilityDisclosure) {
+        PermissionDisclosureDialog(
+            title = LocaleManager.L("permission_overlay_title"),
+            description = LocaleManager.L("permission_overlay_desc"),
+            onDismiss = { showAccessibilityDisclosure = false },
+            onConfirm = {
+                showAccessibilityDisclosure = false
+                CompatibilityUtils.openAccessibilitySettings(context)
+            }
+        )
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 28.dp)
+            .padding(top = 40.dp, bottom = 40.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Box(
+            modifier = Modifier
+                .size(100.dp)
+                .background(Color(0xFFB45309).copy(alpha = 0.15f), RoundedCornerShape(28.dp)),
+            contentAlignment = Alignment.Center
+        ) { Text("🔐", fontSize = 48.sp) }
+
+        Spacer(Modifier.height(24.dp))
+
+        Text(
+            LocaleManager.L("perm_enable_btn"),
+            fontSize = 26.sp,
+            fontWeight = FontWeight.ExtraBold,
+            color = Color.White,
+            textAlign = TextAlign.Center
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(
+            LocaleManager.L("perm_warning"),
+            fontSize = 14.sp,
+            color = Color(0xFF94A3B8),
+            textAlign = TextAlign.Center
+        )
+
+        Spacer(Modifier.height(28.dp))
+
+        PermissionItem(
+            emoji = "🪟",
+            title = LocaleManager.L("perm_guide_overlay_title"),
+            desc = LocaleManager.L("perm_guide_overlay_desc"),
+            isGranted = hasOverlay,
+            steps = LocaleManager.L("perm_guide_overlay_steps"),
+            onGrant = { showOverlayDisclosure = true }
+        )
+
+        Spacer(Modifier.height(12.dp))
+
+        PermissionItem(
+            emoji = "📊",
+            title = LocaleManager.L("perm_guide_usage_title"),
+            desc = LocaleManager.L("perm_guide_usage_desc"),
+            isGranted = hasUsage,
+            steps = LocaleManager.L("perm_guide_usage_steps"),
+            onGrant = { showUsageDisclosure = true }
+        )
+
+        Spacer(Modifier.height(12.dp))
+
+        PermissionItem(
+            emoji = "🔧",
+            title = LocaleManager.L("accessibility_title"),
+            desc = LocaleManager.L("accessibility_subtitle"),
+            isGranted = hasAccessibility,
+            steps = LocaleManager.L("perm_guide_accessibility_steps"),
+            onGrant = { showAccessibilityDisclosure = true }
+        )
+
+        Spacer(Modifier.height(12.dp))
+
+        PermissionItem(
+            emoji = "🔋",
+            title = LocaleManager.L("battery_title"),
+            desc = LocaleManager.L("battery_subtitle"),
+            isGranted = isBatteryIgnored,
+            steps = LocaleManager.L("perm_guide_battery_steps"),
+            onGrant = { CompatibilityUtils.requestIgnoreBatteryOptimization(context) }
+        )
+
+        Spacer(Modifier.height(12.dp))
+
+        PermissionItem(
+            emoji = "📍",
+            title = LocaleManager.L("gps_title"),
+            desc = LocaleManager.L("gps_subtitle"),
+            isGranted = hasLocationPermission,
+            steps = LocaleManager.L("perm_guide_location_steps"),
+            onGrant = {
+                locationPermissionLauncher.launch(
+                    arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+                )
+            }
+        )
+
+        if (CompatibilityUtils.isXiaomi()) {
+            Spacer(Modifier.height(12.dp))
+            PermissionItem(
+                emoji = "🚀",
+                title = LocaleManager.L("perm_guide_xiaomi_title"),
+                desc = LocaleManager.L("perm_guide_xiaomi_desc"),
+                isGranted = false,
+                steps = LocaleManager.L("perm_guide_xiaomi_steps"),
+                onGrant = { CompatibilityUtils.openMiuiPopupPermission(context) }
+            )
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            Spacer(Modifier.height(12.dp))
+            PermissionItem(
+                emoji = "🔔",
+                title = LocaleManager.L("perm_guide_notif_title"),
+                desc = LocaleManager.L("perm_guide_notif_desc"),
+                isGranted = hasNotif,
+                steps = LocaleManager.L("perm_guide_notif_steps"),
+                onGrant = {
+                    launcher.launch(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                        putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
+                    })
+                }
+            )
+        }
+
+        Spacer(Modifier.height(24.dp))
+
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            repeat(totalPages) { i ->
+                val isActive = i == pageIndex
+                Box(
+                    modifier = Modifier
+                        .size(if (isActive) 24.dp else 8.dp, 8.dp)
+                        .clip(CircleShape)
+                        .background(if (isActive) Color(0xFFB45309) else Color(0xFF334155))
+                )
+            }
+        }
+
+        Spacer(Modifier.height(24.dp))
+
+        Button(
+            onClick = onNext,
+            modifier = Modifier.fillMaxWidth().height(56.dp),
+            shape = RoundedCornerShape(16.dp),
+            enabled = allGranted,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = if (allGranted) Color(0xFF2E7D32) else Color(0xFF334155),
+                disabledContainerColor = Color(0xFF1E293B)
+            )
+        ) {
+            Text(
+                if (allGranted) LocaleManager.L("onboarding_next") else LocaleManager.L("perm_btn_must_enable"),
+                fontWeight = FontWeight.Bold,
+                fontSize = 15.sp,
+                color = if (allGranted) Color.White else Color(0xFF94A3B8)
+            )
         }
     }
 }
@@ -945,8 +1526,8 @@ fun GpsLocationPage(
         val timeoutRunnable = Runnable {
             if (isLoading && currentLocation == null) {
                 isLoading = false
-                errorMessage = "GPS Lambat / Lemah. Coba lagi atau gunakan lokasi default."
-                Toast.makeText(context, "Pastikan GPS aktif & kamu di luar ruangan", Toast.LENGTH_LONG).show()
+                errorMessage = LocaleManager.L("gps_error_slow")
+                Toast.makeText(context, LocaleManager.L("gps_toast_warning"), Toast.LENGTH_LONG).show()
             }
         }
         timeoutHandler.postDelayed(timeoutRunnable, 15000L)
@@ -984,18 +1565,18 @@ fun GpsLocationPage(
                     fusedLocationClient.requestLocationUpdates(locationRequest, locationCallback, Looper.getMainLooper())
                         .addOnFailureListener { 
                             isLoading = false
-                            errorMessage = "Gagal memproses permintaan GPS"
+                            errorMessage = LocaleManager.L("gps_error_process")
                             timeoutHandler.removeCallbacks(timeoutRunnable)
                         }
                 }
             }.addOnFailureListener {
                 isLoading = false
-                errorMessage = "Gagal mengakses sensor GPS"
+                errorMessage = LocaleManager.L("gps_error_sensor")
                 timeoutHandler.removeCallbacks(timeoutRunnable)
             }
         } catch (e: SecurityException) {
             isLoading = false
-            errorMessage = "Izin sensor ditolak"
+            errorMessage = LocaleManager.L("gps_error_permission")
             timeoutHandler.removeCallbacks(timeoutRunnable)
         }
     }
@@ -1009,6 +1590,7 @@ fun GpsLocationPage(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .padding(horizontal = 28.dp)
             .padding(top = 48.dp, bottom = 32.dp),
         horizontalAlignment = Alignment.CenterHorizontally
@@ -1053,7 +1635,7 @@ fun GpsLocationPage(
         Spacer(Modifier.height(24.dp))
         
         Text(
-            "Deteksi Lokasi",
+            LocaleManager.L("gps_title"),
             fontSize = 28.sp,
             fontWeight = FontWeight.ExtraBold,
             color = Color.White
@@ -1062,7 +1644,7 @@ fun GpsLocationPage(
         Spacer(Modifier.height(12.dp))
         
         Text(
-            "Waktu sholat sangat bergantung pada posisimu saat ini agar akurasinya 100% pas.",
+            LocaleManager.L("gps_subtitle"),
             fontSize = 15.sp,
             color = Color(0xFF94A3B8),
             textAlign = TextAlign.Center,
@@ -1085,22 +1667,22 @@ fun GpsLocationPage(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 if (isLoading) {
-                    Text("📡 Sedang mencari sinyal GPS...", color = Color.White, fontWeight = FontWeight.Bold)
+                    Text(LocaleManager.L("gps_loading"), color = Color.White, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.height(4.dp))
-                    Text("Pastikan berada di tempat terbuka", color = Color(0xFF94A3B8), fontSize = 12.sp)
+                    Text(LocaleManager.L("gps_loading_desc"), color = Color(0xFF94A3B8), fontSize = 12.sp)
                 } else if (currentLocation != null) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.Check, null, tint = Color(0xFF4ADE80), modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text("Lokasi Berhasil Dikunci", color = Color.White, fontWeight = FontWeight.ExtraBold)
+                        Text(LocaleManager.L("gps_success"), color = Color.White, fontWeight = FontWeight.ExtraBold)
                     }
                     Spacer(Modifier.height(12.dp))
                     Text("📍 $currentCityName", color = Color(0xFFD1FAE5), fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                    Text("Koordinat: ${String.format(Locale.US, "%.4f", currentLocation!!.first)}, ${String.format(Locale.US, "%.4f", currentLocation!!.second)}", color = Color(0xFFD1FAE5), fontSize = 12.sp)
-                    Text("Zona Waktu: UTC+${currentTimezone}", color = Color(0xFFD1FAE5), fontSize = 12.sp)
+                    Text(LocaleManager.LF("gps_coord_format", currentLocation!!.first, currentLocation!!.second), color = Color(0xFFD1FAE5), fontSize = 12.sp)
+                    Text(LocaleManager.LF("gps_tz_format", currentTimezone), color = Color(0xFFD1FAE5), fontSize = 12.sp)
                 } else {
                     Text(
-                        if (hasLocationPermission) "GPS belum aktif" else "Izin Lokasi Belum Ada",
+                        if (hasLocationPermission) LocaleManager.L("gps_no_signal") else LocaleManager.L("gps_no_permission"),
                         color = Color(0xFFFBBF24),
                         fontWeight = FontWeight.Bold
                     )
@@ -1141,7 +1723,7 @@ fun GpsLocationPage(
                 } else {
                     Icon(if (currentLocation != null) Icons.Default.Check else Icons.Default.LocationOn, null)
                     Spacer(Modifier.width(10.dp))
-                    Text(if (currentLocation != null) "Dapatkan Ulang" else "Dapatkan Lokasi Otomatis", fontWeight = FontWeight.Bold)
+                    Text(if (currentLocation != null) LocaleManager.L("gps_button_get_again") else LocaleManager.L("gps_button_get"), fontWeight = FontWeight.Bold)
                 }
             }
             
@@ -1153,7 +1735,7 @@ fun GpsLocationPage(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(
-                    if (currentLocation != null) "Gunakan & Lanjut →" else "Gunakan Lokasi Jakarta (Manual) →",
+                    if (currentLocation != null) LocaleManager.L("gps_button_use") else LocaleManager.L("gps_button_use_default"),
                     color = if (currentLocation != null) Color(0xFF4ADE80) else Color(0xFF94A3B8),
                     fontWeight = FontWeight.Bold
                 )
@@ -1193,14 +1775,14 @@ fun AppSelectionOnboardingPage(
                 
                 if (packageName == context.packageName) return@mapNotNull null
 
-                var categoryStr = "Lainnya"
+                var categoryStr = LocaleManager.L("category_others")
                 var isTarget = true
 
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     when (app.category) {
-                        android.content.pm.ApplicationInfo.CATEGORY_SOCIAL -> categoryStr = "Sosial Media"
-                        android.content.pm.ApplicationInfo.CATEGORY_GAME -> categoryStr = "Game"
-                        android.content.pm.ApplicationInfo.CATEGORY_VIDEO -> categoryStr = "Hiburan"
+                        android.content.pm.ApplicationInfo.CATEGORY_SOCIAL -> categoryStr = LocaleManager.L("category_social")
+                        android.content.pm.ApplicationInfo.CATEGORY_GAME -> categoryStr = LocaleManager.L("category_game")
+                        android.content.pm.ApplicationInfo.CATEGORY_VIDEO -> categoryStr = LocaleManager.L("category_entertainment")
                         else -> {}
                     }
                 }
@@ -1212,8 +1794,10 @@ fun AppSelectionOnboardingPage(
                     lowerPackage.contains("snapchat") || lowerPackage.contains("linkedin") ||
                     lowerPackage.contains("game") || lowerPackage.contains("mobile.legends") ||
                     lowerPackage.contains("pubg") || lowerPackage.contains("freefire")) {
-                    categoryStr = if (lowerPackage.contains("game") || lowerPackage.contains("mobile.legends") || lowerPackage.contains("pubg") || lowerPackage.contains("freefire")) "Game" else "Sosial Media"
+                    categoryStr = if (lowerPackage.contains("game") || lowerPackage.contains("mobile.legends") || lowerPackage.contains("pubg") || lowerPackage.contains("freefire")) LocaleManager.L("category_game") else LocaleManager.L("category_social")
                 }
+
+                if (categoryStr == LocaleManager.L("category_others")) return@mapNotNull null
 
                 AppInfo(name, packageName, categoryStr)
             }.distinctBy { it.packageName }.sortedBy { it.name }
@@ -1225,113 +1809,119 @@ fun AppSelectionOnboardingPage(
         }
     }
 
-    Column(
+    androidx.compose.foundation.lazy.LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .padding(horizontal = 24.dp)
-            .padding(top = 40.dp, bottom = 40.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+            .padding(horizontal = 24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        contentPadding = PaddingValues(top = 40.dp, bottom = 40.dp)
     ) {
-        Box(
-            modifier = Modifier
-                .size(80.dp)
-                .background(Color(0xFF1565C0).copy(alpha = 0.15f), RoundedCornerShape(24.dp)),
-            contentAlignment = Alignment.Center
-        ) { Text("📱", fontSize = 40.sp) }
+        item {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Box(
+                    modifier = Modifier
+                        .size(80.dp)
+                        .background(Color(0xFF1565C0).copy(alpha = 0.15f), RoundedCornerShape(24.dp)),
+                    contentAlignment = Alignment.Center
+                ) { Text("📱", fontSize = 40.sp) }
 
-        Spacer(Modifier.height(24.dp))
+                Spacer(Modifier.height(24.dp))
 
-        Text(
-            "Pilih Aplikasi",
-            fontSize = 26.sp,
-            fontWeight = FontWeight.ExtraBold,
-            color = Color.White
-        )
-        Text(
-            "Pilih minimal 3 aplikasi yang ingin kamu batasi.",
-            fontSize = 14.sp,
-            color = Color(0xFF94A3B8),
-            textAlign = TextAlign.Center
-        )
+                Text(
+                    LocaleManager.L("app_select_title"),
+                    fontSize = 26.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = Color.White
+                )
+                Text(
+                    LocaleManager.L("app_select_desc"),
+                    fontSize = 14.sp,
+                    color = Color(0xFF94A3B8),
+                    textAlign = TextAlign.Center
+                )
 
-        Spacer(Modifier.height(24.dp))
+                Spacer(Modifier.height(24.dp))
+            }
+        }
 
         if (isLoading) {
-            Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator(color = Color(0xFF1565C0))
+            item {
+                Box(Modifier.fillMaxWidth().height(200.dp), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = Color(0xFF1565C0))
+                }
             }
         } else {
-            androidx.compose.foundation.lazy.LazyColumn(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                items(apps) { app ->
-                    val isSelected = currentSelected.contains(app.packageName)
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(if (isSelected) Color(0xFF1E293B) else Color.Transparent)
-                            .border(1.dp, if (isSelected) Color(0xFF1565C0) else Color(0xFF334155), RoundedCornerShape(12.dp))
-                            .clickable {
-                                if (isSelected) currentSelected.remove(app.packageName)
-                                else currentSelected.add(app.packageName)
-                            }
-                            .padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        // Icon Simplified
-                        Box(Modifier.size(32.dp).background(Color(0xFF334155), RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) {
-                            Text(app.name.take(1), color = Color.White, fontWeight = FontWeight.Bold)
+            items(apps) { app ->
+                val isSelected = currentSelected.contains(app.packageName)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(if (isSelected) Color(0xFF1E293B) else Color.Transparent)
+                        .border(1.dp, if (isSelected) Color(0xFF1565C0) else Color(0xFF334155), RoundedCornerShape(12.dp))
+                        .clickable {
+                            if (isSelected) currentSelected.remove(app.packageName)
+                            else currentSelected.add(app.packageName)
                         }
-                        Spacer(Modifier.width(12.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(app.name, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                            Text(app.category, color = Color(0xFF94A3B8), fontSize = 11.sp)
-                        }
-                        Checkbox(
-                            checked = isSelected,
-                            onCheckedChange = null,
-                            colors = CheckboxDefaults.colors(checkedColor = Color(0xFF1565C0))
-                        )
+                        .padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Icon Simplified
+                    Box(Modifier.size(32.dp).background(Color(0xFF334155), RoundedCornerShape(8.dp)), contentAlignment = Alignment.Center) {
+                        Text(app.name.take(1), color = Color.White, fontWeight = FontWeight.Bold)
                     }
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(app.name, color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        Text(app.category, color = Color(0xFF94A3B8), fontSize = 11.sp)
+                    }
+                    Checkbox(
+                        checked = isSelected,
+                        onCheckedChange = null,
+                        colors = CheckboxDefaults.colors(checkedColor = Color(0xFF1565C0))
+                    )
                 }
             }
         }
 
-        Spacer(Modifier.height(20.dp))
+        item {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Spacer(Modifier.height(20.dp))
 
-        // Dot indicator
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            repeat(totalPages) { i ->
-                val isActive = i == pageIndex
-                Box(
-                    modifier = Modifier
-                        .size(if (isActive) 24.dp else 8.dp, 8.dp)
-                        .clip(CircleShape)
-                        .background(if (isActive) Color(0xFF1565C0) else Color(0xFF334155))
-                )
+                // Dot indicator
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    repeat(totalPages) { i ->
+                        val isActive = i == pageIndex
+                        Box(
+                            modifier = Modifier
+                                .size(if (isActive) 24.dp else 8.dp, 8.dp)
+                                .clip(CircleShape)
+                                .background(if (isActive) Color(0xFF1565C0) else Color(0xFF334155))
+                        )
+                    }
+                }
+
+                Spacer(Modifier.height(20.dp))
+
+                Button(
+                    onClick = { onAppsSelected(currentSelected.toSet()) },
+                    modifier = Modifier.fillMaxWidth().height(56.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    enabled = currentSelected.size >= 1,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF1565C0),
+                        disabledContainerColor = Color(0xFF1E293B)
+                    )
+                ) {
+                    Text(
+                        if (currentSelected.size >= 1) LocaleManager.LF("app_btn_continue_selected", currentSelected.size)
+                        else LocaleManager.L("app_btn_must_select"),
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp
+                    )
+                }
             }
-        }
-
-        Spacer(Modifier.height(20.dp))
-
-        Button(
-            onClick = { onAppsSelected(currentSelected.toSet()) },
-            modifier = Modifier.fillMaxWidth().height(56.dp),
-            shape = RoundedCornerShape(16.dp),
-            enabled = currentSelected.size >= 3,
-            colors = ButtonDefaults.buttonColors(
-                containerColor = Color(0xFF1565C0),
-                disabledContainerColor = Color(0xFF1E293B)
-            )
-        ) {
-            Text(
-                if (currentSelected.size >= 3) "Lanjut (${currentSelected.size} Terpilih) →" 
-                else "Pilih Minimal 3 Aplikasi",
-                fontWeight = FontWeight.Bold,
-                fontSize = 15.sp
-            )
         }
     }
 }
@@ -1347,16 +1937,17 @@ fun TimeLimitSelectionPage(
     onNext: () -> Unit
 ) {
     val options = listOf(
-        TimeOption(30L, "30 Menit", "OTW IQ diatas 100 boss"),
-        TimeOption(45L, "45 Menit", "Sangat Direkomendasikan"),
-        TimeOption(60L, "1 Jam", "Direkomendasikan"),
-        TimeOption(90L, "1 Jam 30 Menit", "Ok lah"),
-        TimeOption(120L, "2 Jam", "Lumayan")
+        TimeOption(30L, LocaleManager.L("time_30min"), LocaleManager.L("time_30min_desc")),
+        TimeOption(45L, LocaleManager.L("time_45min"), LocaleManager.L("time_45min_desc")),
+        TimeOption(60L, LocaleManager.L("time_60min"), LocaleManager.L("time_60min_desc")),
+        TimeOption(90L, LocaleManager.L("time_90min"), LocaleManager.L("time_90min_desc")),
+        TimeOption(120L, LocaleManager.L("time_120min"), LocaleManager.L("time_120min_desc"))
     )
 
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .padding(horizontal = 24.dp)
             .padding(top = 40.dp, bottom = 40.dp),
         horizontalAlignment = Alignment.CenterHorizontally
@@ -1371,13 +1962,13 @@ fun TimeLimitSelectionPage(
         Spacer(Modifier.height(24.dp))
 
         Text(
-            "Batas Waktu Harian",
+            LocaleManager.L("time_limit_title"),
             fontSize = 26.sp,
             fontWeight = FontWeight.ExtraBold,
             color = Color.White
         )
         Text(
-            "Tentukan berapa lama kamu boleh menggunakan media sosial setiap harinya.",
+            LocaleManager.L("time_limit_desc"),
             fontSize = 14.sp,
             color = Color(0xFF94A3B8),
             textAlign = TextAlign.Center
@@ -1386,7 +1977,6 @@ fun TimeLimitSelectionPage(
         Spacer(Modifier.height(32.dp))
 
         Column(
-            modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             options.forEach { option ->
@@ -1441,7 +2031,7 @@ fun TimeLimitSelectionPage(
             shape = RoundedCornerShape(16.dp),
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6A1B9A))
         ) {
-            Text("Lanjut →", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+            Text(LocaleManager.L("onboarding_next"), fontWeight = FontWeight.Bold, fontSize = 16.sp)
         }
     }
 }
@@ -1460,6 +2050,7 @@ fun UserRoleSelectionPage(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .padding(horizontal = 24.dp)
             .padding(top = 40.dp, bottom = 40.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -1475,7 +2066,7 @@ fun UserRoleSelectionPage(
         Spacer(Modifier.height(24.dp))
 
         Text(
-            "Siapa pengguna aplikasi ini?",
+            LocaleManager.L("role_title"),
             fontSize = 26.sp,
             fontWeight = FontWeight.ExtraBold,
             color = Color.White,
@@ -1497,8 +2088,8 @@ fun UserRoleSelectionPage(
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("Pribadi (Umum)", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                    Text("Penggunaan standar untuk diri sendiri.", color = Color(0xFF94A3B8), fontSize = 12.sp)
+                    Text(LocaleManager.L("onboarding_role_personal"), color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    Text(LocaleManager.L("onboarding_role_personal_desc"), color = Color(0xFF94A3B8), fontSize = 12.sp)
                 }
                 RadioButton(
                     selected = selectedRole == "personal",
@@ -1523,8 +2114,8 @@ fun UserRoleSelectionPage(
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("Orang Tua", color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-                    Text("Mengawasi penggunaan gadget anak.", color = Color(0xFF94A3B8), fontSize = 12.sp)
+                    Text(LocaleManager.L("onboarding_role_parent"), color = Color.White, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                    Text(LocaleManager.L("onboarding_role_parent_desc"), color = Color(0xFF94A3B8), fontSize = 12.sp)
                 }
                 RadioButton(
                     selected = selectedRole == "parent",
@@ -1534,7 +2125,7 @@ fun UserRoleSelectionPage(
             }
         }
 
-        Spacer(Modifier.weight(1f))
+        Spacer(Modifier.height(32.dp))
 
         // Dot indicator
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1573,6 +2164,7 @@ fun ParentPasswordPage(
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .padding(horizontal = 24.dp)
             .padding(top = 40.dp, bottom = 40.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -1588,7 +2180,7 @@ fun ParentPasswordPage(
         Spacer(Modifier.height(24.dp))
 
         Text(
-            "Password Orang Tua",
+            LocaleManager.L("parent_password_title"),
             fontSize = 26.sp,
             fontWeight = FontWeight.ExtraBold,
             color = Color.White,
@@ -1598,7 +2190,7 @@ fun ParentPasswordPage(
         Spacer(Modifier.height(8.dp))
 
         Text(
-            "Password ini akan digunakan untuk membuka kunci aplikasi.",
+            LocaleManager.L("parent_password_desc"),
             fontSize = 14.sp,
             color = Color(0xFF94A3B8),
             textAlign = TextAlign.Center
@@ -1607,7 +2199,7 @@ fun ParentPasswordPage(
         Spacer(Modifier.height(16.dp))
         
         Text(
-            "Jangan sampai dilihat anak-anak dan jangan lupa! 🤫",
+            LocaleManager.L("parent_password_warning"),
             fontSize = 13.sp,
             color = Color(0xFFFBBF24),
             fontWeight = FontWeight.Bold,
@@ -1622,7 +2214,7 @@ fun ParentPasswordPage(
             modifier = Modifier
                 .fillMaxWidth()
                 .focusRequester(focusRequester),
-            placeholder = { Text("Min. 4 karakter", color = Color(0xFF64748B)) },
+            placeholder = { Text(LocaleManager.L("onboarding_password_min"), color = Color(0xFF64748B)) },
             singleLine = true,
             shape = RoundedCornerShape(16.dp),
             keyboardOptions = KeyboardOptions(
@@ -1643,7 +2235,7 @@ fun ParentPasswordPage(
             )
         )
 
-        Spacer(Modifier.weight(1f))
+        Spacer(Modifier.height(32.dp))
 
         // Dot indicator
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1673,7 +2265,7 @@ fun ParentPasswordPage(
             )
         ) {
             Text(
-                "Lanjut →",
+                LocaleManager.L("onboarding_next"),
                 fontWeight = FontWeight.Bold,
                 fontSize = 16.sp,
                 color = if (isValid) Color.White else Color(0xFF94A3B8)
@@ -1698,6 +2290,7 @@ fun NameInputPage(onFinish: (String) -> Unit) {
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .verticalScroll(rememberScrollState())
             .padding(horizontal = 32.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
@@ -1714,7 +2307,7 @@ fun NameInputPage(onFinish: (String) -> Unit) {
         Spacer(Modifier.height(32.dp))
 
         Text(
-            "Siapa namamu?",
+            LocaleManager.L("name_title"),
             fontSize = 28.sp,
             fontWeight = FontWeight.ExtraBold,
             color = Color.White,
@@ -1724,7 +2317,7 @@ fun NameInputPage(onFinish: (String) -> Unit) {
         Spacer(Modifier.height(8.dp))
 
         Text(
-            "Nama ini akan ditampilkan di profilmu.",
+            LocaleManager.L("name_desc"),
             fontSize = 14.sp,
             color = Color(0xFF94A3B8),
             textAlign = TextAlign.Center
@@ -1738,7 +2331,7 @@ fun NameInputPage(onFinish: (String) -> Unit) {
             modifier = Modifier
                 .fillMaxWidth()
                 .focusRequester(focusRequester),
-            placeholder = { Text("Contoh: Ahmad", color = Color(0xFF64748B)) },
+            placeholder = { Text(LocaleManager.L("onboarding_name_example"), color = Color(0xFF64748B)) },
             singleLine = true,
             shape = RoundedCornerShape(16.dp),
             keyboardOptions = KeyboardOptions(
@@ -1774,10 +2367,350 @@ fun NameInputPage(onFinish: (String) -> Unit) {
             )
         ) {
             Text(
-                "Mulai Perjalanan ✨",
+                LocaleManager.L("start_btn"),
                 fontWeight = FontWeight.Bold,
                 fontSize = 16.sp,
                 color = if (isValid) Color.White else Color(0xFF4A6B4A)
+            )
+        }
+    }
+}
+
+@Composable
+fun PermissionDisclosureDialog(
+    title: String,
+    description: String,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(24.dp),
+            color = Color(0xFF1E293B),
+            border = BorderStroke(1.dp, Color(0xFF334155))
+        ) {
+            Column(
+                modifier = Modifier
+                    .padding(24.dp)
+                    .fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = LocaleManager.L("permission_disclosure_title"),
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+                
+                Spacer(Modifier.height(16.dp))
+                
+                Text(
+                    text = title,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = Color(0xFF4ADE80),
+                    textAlign = TextAlign.Center
+                )
+                
+                Spacer(Modifier.height(12.dp))
+                
+                Text(
+                    text = description,
+                    fontSize = 14.sp,
+                    color = Color(0xFF94A3B8),
+                    textAlign = TextAlign.Center,
+                    lineHeight = 22.sp
+                )
+                
+                Spacer(Modifier.height(24.dp))
+                
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    TextButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(LocaleManager.L("permission_disclosure_cancel"), color = Color(0xFF64748B))
+                    }
+                    
+                    Button(
+                        onClick = onConfirm,
+                        modifier = Modifier.weight(1.5f),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text(LocaleManager.L("permission_disclosure_agree"), fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
+}
+
+// ── Halaman Role + Password + Name (Gabungan) ───────────────────────────────
+
+@Composable
+fun RolePasswordNamePage(
+    pageIndex: Int,
+    totalPages: Int,
+    userRole: String,
+    parentPassword: String,
+    onRoleChanged: (String) -> Unit,
+    onPasswordChanged: (String) -> Unit,
+    onFinish: (String) -> Unit
+) {
+    var name by remember { mutableStateOf("") }
+    var currentRole by remember { mutableStateOf(userRole) }
+    var currentPassword by remember { mutableStateOf(parentPassword) }
+    var showPasswordError by remember { mutableStateOf(false) }
+
+    val focusRequester = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
+    val isValid = name.trim().length >= 2
+
+    val isParent = currentRole == "parent"
+    val isPasswordValid = !isParent || currentPassword.length >= 4
+
+    LaunchedEffect(Unit) {
+        focusRequester.requestFocus()
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Top
+    ) {
+        Spacer(Modifier.height(40.dp))
+
+        Box(
+            modifier = Modifier
+                .size(100.dp)
+                .background(Color(0xFF6A1B9A).copy(alpha = 0.15f), RoundedCornerShape(28.dp)),
+            contentAlignment = Alignment.Center
+        ) { Text("👤", fontSize = 48.sp) }
+
+        Spacer(Modifier.height(24.dp))
+
+        Text(
+            LocaleManager.L("role_title"),
+            fontSize = 26.sp,
+            fontWeight = FontWeight.ExtraBold,
+            color = Color.White,
+            textAlign = TextAlign.Center
+        )
+
+        Spacer(Modifier.height(8.dp))
+
+        Text(
+            LocaleManager.L("role_personal_desc"),
+            fontSize = 14.sp,
+            color = Color(0xFF94A3B8),
+            textAlign = TextAlign.Center
+        )
+
+        Spacer(Modifier.height(28.dp))
+
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            RoleCard(
+                emoji = "🙂",
+                title = LocaleManager.L("role_personal_title"),
+                desc = LocaleManager.L("role_personal_desc"),
+                isSelected = currentRole == "personal",
+                onClick = {
+                    currentRole = "personal"
+                    onRoleChanged("personal")
+                },
+                modifier = Modifier.weight(1f)
+            )
+
+            RoleCard(
+                emoji = "👨‍👩‍👧",
+                title = LocaleManager.L("role_parent_title"),
+                desc = LocaleManager.L("role_parent_desc"),
+                isSelected = currentRole == "parent",
+                onClick = {
+                    currentRole = "parent"
+                    onRoleChanged("parent")
+                },
+                modifier = Modifier.weight(1f)
+            )
+        }
+
+        if (isParent) {
+            Spacer(Modifier.height(24.dp))
+
+            Text(
+                LocaleManager.L("password_title"),
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.White,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(Modifier.height(8.dp))
+
+            OutlinedTextField(
+                value = currentPassword,
+                onValueChange = {
+                    currentPassword = it
+                    showPasswordError = false
+                    onPasswordChanged(it)
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .focusRequester(focusRequester),
+                placeholder = { Text(LocaleManager.L("password_enter"), color = textMutC()) },
+                singleLine = true,
+                isError = showPasswordError,
+                visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(
+                    imeAction = ImeAction.Next,
+                    keyboardType = KeyboardType.Password
+                ),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = Color(0xFF4ADE80),
+                    unfocusedBorderColor = Color(0xFF334155),
+                    focusedTextColor = Color.White,
+                    unfocusedTextColor = Color.White
+                ),
+                shape = RoundedCornerShape(12.dp)
+            )
+
+            if (showPasswordError) {
+                Text(
+                    LocaleManager.L("password_mismatch"),
+                    color = Color.Red,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
+        }
+
+        Spacer(Modifier.height(24.dp))
+
+        Text(
+            LocaleManager.L("name_title"),
+            fontSize = 16.sp,
+            fontWeight = FontWeight.Bold,
+            color = Color.White,
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Spacer(Modifier.height(8.dp))
+
+        OutlinedTextField(
+            value = name,
+            onValueChange = { name = it },
+            modifier = Modifier
+                .fillMaxWidth()
+                .focusRequester(focusRequester),
+            placeholder = { Text(LocaleManager.L("name_placeholder"), color = textMutC()) },
+            singleLine = true,
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedBorderColor = Color(0xFF4ADE80),
+                unfocusedBorderColor = Color(0xFF334155),
+                focusedTextColor = Color.White,
+                unfocusedTextColor = Color.White
+            ),
+            shape = RoundedCornerShape(12.dp)
+        )
+
+        Spacer(Modifier.height(12.dp))
+
+        Text(
+            LocaleManager.L("onboarding_name_example"),
+            color = Color(0xFF94A3B8),
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Spacer(Modifier.height(32.dp))
+
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            repeat(totalPages) { i ->
+                val isActive = i == pageIndex
+                Box(
+                    modifier = Modifier
+                        .size(if (isActive) 24.dp else 8.dp, 8.dp)
+                        .clip(CircleShape)
+                        .background(if (isActive) Color(0xFF6A1B9A) else Color(0xFF334155))
+                )
+            }
+        }
+
+        Spacer(Modifier.height(24.dp))
+
+        Button(
+            onClick = {
+                if (isParent && currentPassword.length < 4) {
+                    showPasswordError = true
+                } else {
+                    onFinish(name)
+                }
+            },
+            modifier = Modifier.fillMaxWidth().height(56.dp),
+            shape = RoundedCornerShape(16.dp),
+            enabled = isValid && isPasswordValid,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Color(0xFF6A1B9A),
+                disabledContainerColor = Color(0xFF334155)
+            )
+        ) {
+            Text(
+                LocaleManager.L("onboarding_next"),
+                fontWeight = FontWeight.Bold,
+                fontSize = 16.sp,
+                color = if (isValid && isPasswordValid) Color.White else Color(0xFF94A3B8)
+            )
+        }
+
+        Spacer(Modifier.height(40.dp))
+    }
+}
+
+@Composable
+private fun RoleCard(
+    emoji: String,
+    title: String,
+    desc: String,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier.clickable { onClick() },
+        colors = CardDefaults.cardColors(
+            containerColor = if (isSelected) Color(0xFF6A1B9A) else Color(0xFF1E293B)
+        ),
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, if (isSelected) Color(0xFF4ADE80) else Color(0xFF334155))
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(emoji, fontSize = 32.sp)
+            Spacer(Modifier.height(8.dp))
+            Text(
+                title,
+                fontWeight = FontWeight.Bold,
+                color = Color.White,
+                style = MaterialTheme.typography.bodyMedium
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                desc,
+                color = Color(0xFF94A3B8),
+                style = MaterialTheme.typography.bodySmall,
+                textAlign = TextAlign.Center
             )
         }
     }

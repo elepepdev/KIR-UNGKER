@@ -33,18 +33,18 @@
 
         <activity
             android:name=".OnboardingActivity"
+            android:exported="false"
+            android:theme="@style/Theme.UNGKER">
+        </activity>
+
+        <activity
+            android:name=".MainActivity"
             android:exported="true"
             android:theme="@style/Theme.UNGKER">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-        </activity>
-
-        <activity
-            android:name=".MainActivity"
-            android:exported="false"
-            android:theme="@style/Theme.UNGKER">
         </activity>
 
         <activity
@@ -107,6 +107,8 @@
                 <action android:name="android.intent.action.USER_PRESENT" />
             </intent-filter>
         </receiver>
+
+        <receiver android:name=".PrayerNotificationReceiver" android:enabled="true" android:exported="false" />
     </application>
 
 </manifest>

@@ -377,14 +377,14 @@ fun StatistikScreen() {
         "${userSocialMediaLimitMinutes}M"
     }
     val statusLabel    = when {
-        todayMs < normalLimitMs -> "WAJAR"
-        todayMs < warnLimitMs   -> "CUKUP"
-        else                    -> "KELEWAT BATAS"
+        todayMs < normalLimitMs -> LocaleManager.L("stat_status_normal")
+        todayMs < warnLimitMs   -> LocaleManager.L("stat_status_warning")
+        else                    -> LocaleManager.L("stat_status_exceeded")
     }
     val statusColor = when (statusLabel) {
-        "WAJAR"         -> Color(0xFF43A047)
-        "CUKUP"         -> Color(0xFFFFA000)
-        else            -> Color(0xFFE53935)
+        LocaleManager.L("stat_status_normal") -> Color(0xFF43A047)
+        LocaleManager.L("stat_status_warning") -> Color(0xFFFFA000)
+        else                                  -> Color(0xFFE53935)
     }
     val sisaMs = maxOf(0L, normalLimitMs - todayMs)
 
@@ -395,7 +395,15 @@ fun StatistikScreen() {
     // Urutan hari untuk bar chart (index 6=hari paling lama lalu, 0=hari ini)
     val dayLabels = remember {
         val cal = Calendar.getInstance()
-        val dayNames = arrayOf("Min","Sen","Sel","Rab","Kam","Jum","Sab")
+        val dayNames = arrayOf(
+            LocaleManager.L("stat_day_sun"),
+            LocaleManager.L("stat_day_mon"),
+            LocaleManager.L("stat_day_tue"),
+            LocaleManager.L("stat_day_wed"),
+            LocaleManager.L("stat_day_thu"),
+            LocaleManager.L("stat_day_fri"),
+            LocaleManager.L("stat_day_sat")
+        )
         Array(7) { i ->
             val c = Calendar.getInstance()
             c.timeInMillis = cal.timeInMillis - (6 - i) * 86_400_000L
@@ -419,11 +427,11 @@ fun StatistikScreen() {
                     .background(cardBg())
                     .padding(start = 24.dp, end = 24.dp, top = 28.dp, bottom = 20.dp)
             ) {
-                Text("Statistik",
+                Text(LocaleManager.L("stat_title"),
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.ExtraBold,
                     color = textPrimC())
-                Text("Pantau perkembangan fokusmu",
+                Text(LocaleManager.L("stat_subtitle"),
                     style = MaterialTheme.typography.bodyMedium,
                     color = textSecC())
             }
@@ -457,7 +465,7 @@ fun StatistikScreen() {
                 elevation = CardDefaults.cardElevation(2.dp)
             ) {
                 Column(Modifier.padding(20.dp)) {
-                    Text("Batasan Harian",
+                    Text(LocaleManager.L("stat_daily_limit"),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold, color = textPrimC())
                     
@@ -470,7 +478,7 @@ fun StatistikScreen() {
                         else -> Color(0xFF52B788) // Green - under limit
                     }
                     
-                    Text("Total Sosial Media",
+                    Text(LocaleManager.L("stat_total_social"),
                         style = MaterialTheme.typography.bodySmall,
                         color = textSecC())
                     Spacer(Modifier.height(4.dp))
@@ -502,7 +510,7 @@ fun StatistikScreen() {
                             else -> Color(0xFF52B788)
                         }
                         
-                        Text("Aplikasi Terblokir",
+                        Text(LocaleManager.L("stat_apps_blocked"),
                             style = MaterialTheme.typography.bodySmall,
                             color = textSecC())
                         Spacer(Modifier.height(4.dp))
@@ -535,17 +543,17 @@ fun StatistikScreen() {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Box(Modifier.size(8.dp).background(Color(0xFF52B788), RoundedCornerShape(2.dp)))
                             Spacer(Modifier.width(4.dp))
-                            Text("< 75%", style = MaterialTheme.typography.labelSmall, color = textSecC())
+                            Text(LocaleManager.L("stat_less_75"), style = MaterialTheme.typography.labelSmall, color = textSecC())
                         }
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Box(Modifier.size(8.dp).background(Color(0xFFF59E0B), RoundedCornerShape(2.dp)))
                             Spacer(Modifier.width(4.dp))
-                            Text("75-100%", style = MaterialTheme.typography.labelSmall, color = textSecC())
+                            Text(LocaleManager.L("stat_75_100"), style = MaterialTheme.typography.labelSmall, color = textSecC())
                         }
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Box(Modifier.size(8.dp).background(Color(0xFFBC4749), RoundedCornerShape(2.dp)))
                             Spacer(Modifier.width(4.dp))
-                            Text("> 100%", style = MaterialTheme.typography.labelSmall, color = textSecC())
+                            Text(LocaleManager.L("stat_over_100"), style = MaterialTheme.typography.labelSmall, color = textSecC())
                         }
                     }
                 }
@@ -558,8 +566,8 @@ fun StatistikScreen() {
             StreakCard(
                 icon        = Icons.Default.Security,
                 streak      = detoxStreak,
-                label       = "Streak Detox Medsos",
-                sublabel    = "Hari berturut-turut medsos & game < $limitText",
+                label       = LocaleManager.L("stat_detox_label"),
+                sublabel    = LocaleManager.LF("stat_detox_desc", detoxStreak, limitText),
                 accentColor = Color(0xFF2E7D32),
                 modifier    = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
             )
@@ -588,7 +596,7 @@ fun StatistikScreen() {
                         }
                         Text("$dailyV", style = MaterialTheme.typography.headlineMedium,
                             fontWeight = FontWeight.ExtraBold, color = textPrimC())
-                        Text("Total Ayat Dibaca", style = MaterialTheme.typography.bodySmall,
+                        Text(LocaleManager.L("stat_total_verses"), style = MaterialTheme.typography.bodySmall,
                             color = textSecC())
                     }
                 }
@@ -607,7 +615,7 @@ fun StatistikScreen() {
                         val focusLabel = if (fH > 0) "${fH}j ${fM}m" else "${fM}m"
                         Text(focusLabel, style = MaterialTheme.typography.headlineMedium,
                             fontWeight = FontWeight.ExtraBold, color = textPrimC())
-                        Text("Waktu Fokus", style = MaterialTheme.typography.bodySmall,
+                        Text(LocaleManager.L("stat_focus_time"), style = MaterialTheme.typography.bodySmall,
                             color = textSecC())
                     }
                 }
@@ -624,10 +632,10 @@ fun StatistikScreen() {
                 elevation = CardDefaults.cardElevation(2.dp)
             ) {
                 Column(Modifier.padding(20.dp)) {
-                    Text("Hiburan & Sosmed",
+                    Text(LocaleManager.L("stat_entertainment"),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold, color = textPrimC())
-                    Text("Durasi (jam) 7 hari terakhir",
+                    Text(LocaleManager.L("stat_duration_7days"),
                         style = MaterialTheme.typography.bodySmall, color = textSecC())
                     Spacer(Modifier.height(20.dp))
                     if (isLoading) {
@@ -658,6 +666,14 @@ fun StatistikScreen() {
                                         .clip(RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp))
                                         .background(barColor))
                                     Spacer(Modifier.height(6.dp))
+                                    Text(
+                                        ms.toHhMm(),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        color = if (isToday) Color(0xFFF05252) else textMutC(),
+                                        fontWeight = if (isToday) FontWeight.Bold else FontWeight.Normal
+                                    )
+                                    Spacer(Modifier.height(4.dp))
+
                                     Text(dayLabels.getOrElse(idx) { "" },
                                         style = MaterialTheme.typography.labelSmall,
                                         color = if (isToday) Color(0xFFF05252) else textMutC(),
@@ -683,7 +699,7 @@ fun StatistikScreen() {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Default.PhoneAndroid, null, tint = textPrimC(), modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
-                        Text("Waktu Layar Tertinggi",
+                        Text(LocaleManager.L("stat_screen_time_highest"),
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold, color = textPrimC())
                     }
@@ -695,7 +711,7 @@ fun StatistikScreen() {
                             Spacer(Modifier.height(16.dp))
                         }
                     } else if (topApps.isEmpty()) {
-                        Text("Tidak ada data penggunaan hari ini.",
+                        Text(LocaleManager.L("stat_no_data"),
                             style = MaterialTheme.typography.bodySmall, color = textMutC())
                     } else {
                         val maxMs = topApps.maxOf { it.usageMs }
@@ -739,11 +755,11 @@ fun StatistikScreen() {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("✦", fontSize = 14.sp, color = Color.White.copy(alpha = 0.8f))
                         Spacer(Modifier.width(8.dp))
-                        Text("Renungan Waktu", style = MaterialTheme.typography.labelLarge,
+                        Text(LocaleManager.L("stat_reflection_title"), style = MaterialTheme.typography.labelLarge,
                             fontWeight = FontWeight.Bold, color = Color.White.copy(alpha = 0.85f))
                     }
                     Spacer(Modifier.height(12.dp))
-                    Text("Seandainya Waktu Layarku Kupakai Untuk Membaca Qur'an",
+                    Text(LocaleManager.L("stat_reflection_quote"),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.ExtraBold, color = Color.White, lineHeight = 26.sp)
                     Spacer(Modifier.height(16.dp))
@@ -751,27 +767,27 @@ fun StatistikScreen() {
                         .background(Color.White.copy(alpha = 0.15f)).padding(16.dp)
                     ) {
                         Column {
-                            Text("Aku bakal dapat", style = MaterialTheme.typography.bodyMedium,
+                            Text(LocaleManager.L("stat_reflection_would"), style = MaterialTheme.typography.bodyMedium,
                                 color = Color.White.copy(alpha = 0.8f))
                             Spacer(Modifier.height(4.dp))
                             Row(verticalAlignment = Alignment.Bottom) {
                                 Text("$estimatedJuz", style = MaterialTheme.typography.displaySmall,
                                     fontWeight = FontWeight.Black, color = Color.White)
                                 Spacer(Modifier.width(8.dp))
-                                Text("juz", style = MaterialTheme.typography.titleLarge,
+                                Text(LocaleManager.L("stat_reflection_juz"), style = MaterialTheme.typography.titleLarge,
                                     color = Color.White.copy(alpha = 0.85f),
                                     modifier = Modifier.padding(bottom = 6.dp))
                             }
                             if (todayMs > 0) {
                                 val totalMin = TimeUnit.MILLISECONDS.toMinutes(todayMs)
-                                Text("dari $totalMin menit waktu layarmu hari ini",
+                                Text(LocaleManager.L("stat_reflection_from").replace("{0}", totalMin.toString()),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = Color.White.copy(alpha = 0.65f))
-                                Text("(1 juz ≈ 35 menit membaca)", style = MaterialTheme.typography.labelSmall,
+                                Text(LocaleManager.L("stat_reflection_approx"), style = MaterialTheme.typography.labelSmall,
                                     color = Color.White.copy(alpha = 0.5f),
                                     modifier = Modifier.padding(top = 2.dp))
                             } else {
-                                Text("Belum ada data penggunaan hari ini",
+                                Text(LocaleManager.L("stat_no_data_reflection"),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = Color.White.copy(alpha = 0.65f))
                             }

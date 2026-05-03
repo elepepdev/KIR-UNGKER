@@ -8,6 +8,9 @@ import android.content.SharedPreferences
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
+import android.media.AudioAttributes
+import android.media.RingtoneManager
+import android.graphics.Color
 import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationCompat
 import androidx.core.content.edit
@@ -43,6 +46,19 @@ class UngkerService : Service() {
 
     private var cachedPrayerTimes: Map<String, Double>? = null
     private var lastPrayerUpdateDay = -1
+    
+    // Prayer Notification Settings
+    private var prayerNotificationEnabled = true
+    private var prayerNotificationMinutesBefore = 10
+
+    // Caching untuk stabilitas foreground app detection
+    @Volatile private var cachedForegroundApp: String? = null
+    @Volatile private var lastForegroundAppUpdateTime = 0L
+
+    // deepFrictionPending flag untuk prevent race condition
+    @Volatile private var isDeepFrictionPending = false
+    @Volatile private var pendingTargetPackage: String? = null
+    @Volatile private var deepFrictionPendingStartTime = 0L
 
     // Social Media Time Tracking
     private var cachedSocialMediaLimitMinutes: Long = 60L
@@ -52,6 +68,7 @@ class UngkerService : Service() {
     private var tempSocialMediaUnlockExpiryMs: Long = 0L // Timestamp when temp unlock expires
     private var cachedIsHardLocked: Boolean = false
     private var cachedHardLockDate: String = ""
+    private var lastUnblockedWarnShownAt: Long = 0L
 
     private fun checkHasPledgeCredit(): Boolean {
         return System.currentTimeMillis() < cachedPledgeExpiry
@@ -89,11 +106,20 @@ class UngkerService : Service() {
         private const val CHANNEL_GUARDIAN   = "UNGKER_NOTIF"
         private const val CHANNEL_LOCK       = "UNGKER_LOCK"
         private const val CHANNEL_PERMISSION = "UNGKER_PERMISSION"
+        private const val CHANNEL_WARNING = "UNGKER_WARNING_V3"
+        private const val CHANNEL_PRAYER_REMINDER = "UNGKER_PRAYER_REMINDER"
         private const val NOTIF_ID_GUARDIAN  = 1
         private const val NOTIF_ID_LOCK      = 2
         private const val NOTIF_ID_PERMISSION = 3
+        private const val NOTIF_ID_UNBLOCKED_WARN = 100
+        private const val NOTIF_ID_PRAYER_REMINDER = 50
         const val SHOLAT_WINDOW_SEC = 600.0
         const val LOCK_SHOW_COOLDOWN = 3_000L
+        private const val UNBLOCKED_NOTIF_COOLDOWN = 60_000L // 60 detik
+        
+        // Monitoring intervals for battery optimization
+        private const val MONITOR_INTERVAL_ACTIVE = 500L
+        private const val MONITOR_INTERVAL_SCREEN_OFF = 5000L
 
         @Volatile var isLockActivityVisible = false
 
@@ -150,8 +176,8 @@ class UngkerService : Service() {
         val pendingIntent = PendingIntent.getActivity(this, 0, settingsIntent, pendingFlags)
         val notification = NotificationCompat.Builder(this, CHANNEL_PERMISSION)
             .setSmallIcon(android.R.drawable.ic_lock_idle_lock)
-            .setContentTitle("Izin Diperlukan")
-            .setContentText("Klik untuk memberikan izin Akses Penggunaan")
+            .setContentTitle(LocaleManager.safeL("service_permission_required"))
+            .setContentText(LocaleManager.safeL("service_usage_perm_click"))
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
@@ -175,6 +201,10 @@ class UngkerService : Service() {
         cachedHardLockDate = prefs.getString("hard_lock_date", "") ?: ""
         cachedSocialMediaLimitMinutes = prefs.getLong("social_media_limit_minutes", 60L)
         tempSocialMediaUnlockExpiryMs = prefs.getLong("social_media_temp_unlock_expiry_ms", 0L)
+        
+        // Load prayer notification settings
+        prayerNotificationEnabled = prefs.getBoolean("feature_prayer_notification_enabled", true)
+        prayerNotificationMinutesBefore = prefs.getInt("prayer_notification_minutes_before", 10)
 
         // Initialize social media tracking for today
         val todayStr = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
@@ -204,8 +234,8 @@ class UngkerService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val notification = NotificationCompat.Builder(this, CHANNEL_GUARDIAN)
-            .setContentTitle("UNGKER Aktif")
-            .setContentText("Melindungi fokusmu...")
+            .setContentTitle(LocaleManager.safeL("service_active"))
+            .setContentText(LocaleManager.safeL("service_protecting"))
             .setSmallIcon(android.R.drawable.ic_lock_idle_lock)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .setOngoing(true)
@@ -230,7 +260,6 @@ class UngkerService : Service() {
             var isFirstIteration    = true
             var distractionExitStartTime = 0L // Timer untuk mendeteksi kapan user benar-benar keluar
             val POST_LOCK_GRACE_MS  = 5_000L
-            val MONITOR_INTERVAL    = 100L
             val launcherPkg         = getLauncherPackageName()
 
             while (isActive) {
@@ -252,7 +281,14 @@ class UngkerService : Service() {
                 }
 
                 val today = java.util.Calendar.getInstance().get(java.util.Calendar.DAY_OF_YEAR)
-                if (today != lastPrayerUpdateDay) { updatePrayerTimesCache(); lastPrayerUpdateDay = today }
+                if (today != lastPrayerUpdateDay) { 
+                    updatePrayerTimesCache(); 
+                    lastPrayerUpdateDay = today 
+                    // Schedule prayer notifications for the new day
+                    if (prayerNotificationEnabled && cachedPrayerTimes != null) {
+                        scheduleAllPrayerNotifications(cachedPrayerTimes!!, prayerNotificationMinutesBefore)
+                    }
+                }
 
                 val lockDismissedAt = prefs.getLong("lock_dismissed_at", 0L)
                 val inGracePeriod   = (currentTime - lockDismissedAt) < POST_LOCK_GRACE_MS
@@ -268,7 +304,8 @@ class UngkerService : Service() {
                     val tzPref = prefs.getInt("sholat_tz", 7)
                     val nowSec = getNowSecInTz(tzPref)
                     val activePrayer = cachedPrayerTimes?.let { checkPrayerWindow(it, nowSec, SHOLAT_WINDOW_SEC) }
-                    val inPrayerWindow = activePrayer != null && prefs.contains("sholat_city_name")
+                    val sholatLockEnabled = prefs.getBoolean("feature_sholat_lock_enabled", true)
+                    val inPrayerWindow = activePrayer != null && prefs.contains("sholat_city_name") && sholatLockEnabled
 
                     if (inPrayerWindow && !checkHasPledgeCredit() && !inGracePeriod && !isLockActivityVisible) {
                         if (currentTime - sozalatLockShownAt > LOCK_SHOW_COOLDOWN) {
@@ -287,22 +324,40 @@ class UngkerService : Service() {
                             dfManager.clearCurrentlyActiveApp()
                         }
 
-                        // 2. ENFORCE DEEP FRICTION (Setiap loop jika belum di-unlock)
+                        // 1b. NOTIFIKASI JIKA MEDSOS BELUM DIBLOKIR
+                        if (!isLockActivityVisible) {
+                            val isCommApp = dfManager.isCommunicationApp(foregroundApp)
+                            val isSocialMedia = dfManager.isSocialMediaApp(foregroundApp)
+                            val isBlocked = dfManager.isAppBlocked(foregroundApp)
+                            
+                            if (isSocialMedia && !isBlocked && !isCommApp) {
+                                showUnblockedSocialMediaNotification(foregroundApp)
+                            }
+                        }
+
+                        // 2. ENFORCE DEEP FRICTION
                         if (isDistractionApp && dfManager.shouldShowFriction(foregroundApp)) {
                             if (currentTime - deepFrictionShownAt > 3000L && !isLockActivityVisible) {
-                                Log.d("UngkerService", "Deep Friction ENFORCED for $foregroundApp")
-                                showLockScreen(
-                                    DeepFrictionActivity::class.java,
-                                    foregroundApp,
-                                    "Deep Friction 🧠",
-                                    "Wajib isi alasan sebelum membuka $foregroundApp",
-                                    NOTIF_ID_LOCK
-                                )
+                                if (isDeepFrictionPending && pendingTargetPackage == foregroundApp) {
+                                    val pendingElapsed = currentTime - deepFrictionPendingStartTime
+                                    if (pendingElapsed < 5000L) {
+                                        // Still waiting for resolution, skip this check
+                                        delay(MONITOR_INTERVAL_ACTIVE)
+                                        continue
+                                    }
+                                }
+                                if (isDeepFrictionPending && dfManager.getCurrentlyActiveApp() == foregroundApp) {
+                                    isDeepFrictionPending = false
+                                    pendingTargetPackage = null
+                                }
+                                showLockScreen(DeepFrictionActivity::class.java, foregroundApp, "Deep Friction 🧠", "Wajib isi alasan sebelum membuka $foregroundApp", NOTIF_ID_LOCK)
+                                isDeepFrictionPending = true
+                                pendingTargetPackage = foregroundApp
+                                deepFrictionPendingStartTime = currentTime
                                 deepFrictionShownAt = currentTime
                             }
-                            // Blokir eksekusi selanjutnya dan jangan tandai sebagai "terakhir dilihat" agar saat masuk nanti tetap trigger
-                            lastKnownForeground = "" 
-                            delay(MONITOR_INTERVAL)
+                            lastKnownForeground = ""
+                            delay(MONITOR_INTERVAL_ACTIVE)
                             continue
                         }
 
@@ -316,17 +371,15 @@ class UngkerService : Service() {
                         val locked = checkAndApplyLock(foregroundApp, currentTime, regularLockShownAt, inGracePeriod)
                         if (locked) {
                             regularLockShownAt = currentTime
-                            // Jangan reset lastKnownForeground agar tidak loop friction
                         }
 
                         if (!isLockActivityVisible) {
                             val limitMs = cachedSocialMediaLimitMinutes * 60 * 1000L
                             val hardLockThresholdMs = limitMs + (30 * 60 * 1000L)
                             
-                            var totalUsageAllDistractions = 0L
-                            val usm = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
                             val startOfDay = Calendar.getInstance().apply { set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0); set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0) }.timeInMillis
                             val usageMap = calcUsageFromEvents(this@UngkerService, startOfDay, currentTime)
+                            var totalUsageAllDistractions = 0L
                             for ((pkgName, usageMs) in usageMap) { if (isDistractingApp(this@UngkerService, pkgName)) totalUsageAllDistractions += usageMs }
 
                             socialMediaTimeUsedMs = totalUsageAllDistractions
@@ -350,43 +403,48 @@ class UngkerService : Service() {
                             }
                         }
                     } else {
-                        // User di Launcher atau flicker
+                        // User keluar dari aplikasi atau ke Home
                         if (distractionExitStartTime == 0L) distractionExitStartTime = currentTime
-                        
                         val activeApp = dfManager.getCurrentlyActiveApp()
-                        
-                        // ANTI-BYPASS: Jika user keluar dari aplikasi distraksi yang BELUM di-unlock
+
                         if (lastKnownForeground != "" && lastKnownForeground != activeApp) {
                             if (dfManager.getCategory(lastKnownForeground) != null && !isLockActivityVisible) {
-                                // Jika sudah lebih dari 1s (bukan flicker), reset status agar masuk lagi wajib friction
-                                if (currentTime - distractionExitStartTime > 1000L) {
-                                    Log.d("UngkerService", "Bypass attempt or incomplete friction for $lastKnownForeground. Resetting.")
+                                // Tunggu 2 detik sebelum benar-benar menganggap user keluar
+                                // agar tidak sering reset session jika UsageStats flicker
+                                if (currentTime - distractionExitStartTime > 2000L) {
                                     lastKnownForeground = ""
+                                    creditSessionStart = 0L 
+                                    isDeepFrictionPending = false
+                                    pendingTargetPackage = null
                                 }
+                            } else {
+                                lastKnownForeground = ""
+                                creditSessionStart = 0L
                             }
                         }
 
                         if (currentTime - distractionExitStartTime > 60000L) {
                             if (activeApp != null) {
-                                Log.d("UngkerService", "Inactivity timeout (60s). Clearing session.")
                                 dfManager.clearCurrentlyActiveApp()
                                 lastKnownForeground = ""
+                                isDeepFrictionPending = false
+                                pendingTargetPackage = null
                             }
                             distractionExitStartTime = 0L
                         }
-                        creditSessionStart = 0L
                     }
                 } else {
-                    // Screen Off
                     val dfManager = DeepFrictionManager(this@UngkerService)
-                    if (dfManager.getCurrentlyActiveApp() != null) {
-                        dfManager.clearCurrentlyActiveApp()
-                    }
+                    if (dfManager.getCurrentlyActiveApp() != null) { dfManager.clearCurrentlyActiveApp() }
                     lastKnownForeground = ""
                     distractionExitStartTime = 0L
                     creditSessionStart = 0L
+                    isDeepFrictionPending = false
+                    pendingTargetPackage = null
                 }
-                delay(MONITOR_INTERVAL)
+
+                val interval = if (isScreenOn()) MONITOR_INTERVAL_ACTIVE else MONITOR_INTERVAL_SCREEN_OFF
+                delay(interval)
             }
         }
     }
@@ -414,77 +472,156 @@ class UngkerService : Service() {
             )
         } catch (e: Exception) { cachedPrayerTimes = null }
     }
+    
+    private fun scheduleAllPrayerNotifications(prayerTimes: Map<String, Double>, minutesBefore: Int) {
+        val prayers = listOf(
+            "Subuh" to (prayerTimes["Subuh"] ?: 0.0),
+            "Dzuhur" to (prayerTimes["Dzuhur"] ?: 0.0),
+            "Ashar" to (prayerTimes["Ashar"] ?: 0.0),
+            "Maghrib" to (prayerTimes["Maghrib"] ?: 0.0),
+            "Isya" to (prayerTimes["Isya"] ?: 0.0)
+        )
+        
+        val today = Calendar.getInstance().get(Calendar.DAY_OF_YEAR)
+        val lastScheduled = prefs.getInt("last_scheduled_prayer_day", -1)
+        
+        // Only schedule once per day
+        if (lastScheduled != today) {
+            val alarmManager = getSystemService(Context.ALARM_SERVICE) as android.app.AlarmManager
+            
+            for ((prayerName, prayerTimeSec) in prayers) {
+                // Calculate notification time (prayer time - minutes before + ihtiyat 2 min)
+                // Ihtiyat already included in prayerTimeSec, so we just subtract minutesBefore
+                val notifyTimeSec = prayerTimeSec - (minutesBefore * 60)
+                
+                // Convert to millis for today at that time
+                val notifyMillis = convertSecToMillisToday(notifyTimeSec)
+                
+                // Skip if already passed today
+                if (notifyMillis > System.currentTimeMillis()) {
+                    scheduleExactAlarm(prayerName, notifyMillis, minutesBefore, alarmManager)
+                }
+            }
+            
+            // Save the day last scheduled
+            prefs.edit().putInt("last_scheduled_prayer_day", today).apply()
+        }
+    }
+    
+    private fun convertSecToMillisToday(secOfDay: Double): Long {
+        val now = Calendar.getInstance()
+        val hours = (secOfDay / 3600).toInt()
+        val minutes = ((secOfDay % 3600) / 60).toInt()
+        val seconds = (secOfDay % 60).toInt()
+        
+        val notifyCal = Calendar.getInstance().apply {
+            set(Calendar.HOUR_OF_DAY, hours)
+            set(Calendar.MINUTE, minutes)
+            set(Calendar.SECOND, seconds)
+            set(Calendar.MILLISECOND, 0)
+        }
+        
+        return notifyCal.timeInMillis
+    }
+    
+    private fun scheduleExactAlarm(prayerName: String, triggerAtMillis: Long, minutesBefore: Int, alarmManager: android.app.AlarmManager) {
+        val intent = Intent(this, PrayerNotificationReceiver::class.java).apply {
+            putExtra(PrayerNotificationReceiver.EXTRA_PRAYER_NAME, prayerName)
+            putExtra(PrayerNotificationReceiver.EXTRA_MINUTES_BEFORE, minutesBefore)
+        }
+        
+        val pendingIntent = PendingIntent.getBroadcast(
+            this,
+            prayerName.hashCode(),
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                if (alarmManager.canScheduleExactAlarms()) {
+                    alarmManager.setExactAndAllowWhileIdle(
+                        android.app.AlarmManager.RTC_WAKEUP,
+                        triggerAtMillis,
+                        pendingIntent
+                    )
+                }
+            } else {
+                alarmManager.setExactAndAllowWhileIdle(
+                    android.app.AlarmManager.RTC_WAKEUP,
+                    triggerAtMillis,
+                    pendingIntent
+                )
+            }
+        } catch (e: Exception) {
+            // Fallback: use inexact alarm if exact alarm fails
+            try {
+                alarmManager.setAndAllowWhileIdle(
+                    android.app.AlarmManager.RTC_WAKEUP,
+                    triggerAtMillis,
+                    pendingIntent
+                )
+            } catch (e2: Exception) {
+                e2.printStackTrace()
+            }
+        }
+    }
 
-    /**
-     * Cek dan terapkan pengurangan kredit menggunakan timestamp-based deduction.
-     *
-     * Perubahan dari versi lama:
-     * - DITAMBAH: Reset otomatis session saat ada penambahan kredit dari luar (via onPrefsChanged).
-     * - DITAMBAH: Cegah deduction jika isLockActivityVisible = true (mengatasi lag UsageStats).
-     * - DITAMBAH: Hitung elapsed dari `currentTime - creditSessionStart` → akurat 100%.
-     */
     private fun checkAndApplyLock(
         foregroundApp: String,
         currentTime: Long,
         regularLockShownAt: Long,
         inGracePeriod: Boolean
     ): Boolean {
-        if (inGracePeriod || checkHasPledgeCredit() || isLockActivityVisible) return false
+        // Izin khusus: isLockActivityVisible dan inGracePeriod menghentikan UI Lock, 
+        // tapi TIDAK menghentikan pengurangan kredit jika di bawah.
+        if (isLockActivityVisible) return false
+
         if (!cachedBlockedApps.contains(foregroundApp)) return false
 
-        // Reset session jika creditSessionStart tidak valid (0L)
+        // Start session if not started
         if (creditSessionStart == 0L) {
             creditSessionStart   = currentTime
             creditAtSessionStart = cachedRemainingCredit
         }
 
-        return when {
-            cachedRemainingCredit > 0 -> {
-                // Hitung kredit tersisa berdasarkan waktu nyata yang telah berlalu sejak sesi dimulai.
-                val elapsed   = currentTime - creditSessionStart
-                val newCredit = maxOf(0L, creditAtSessionStart - elapsed)
-                cachedRemainingCredit = newCredit
+        val elapsed = currentTime - creditSessionStart
+        val currentEffectiveCredit = maxOf(0L, creditAtSessionStart - elapsed)
+        
+        // Update local cache untuk sinkronisasi UI/Notif
+        cachedRemainingCredit = currentEffectiveCredit
 
-                // Tulis ke SharedPreferences maksimal sekali per detik.
-                if (currentTime - lastCreditWriteMs >= 1_000L) {
-                    prefs.edit { putLong("remaining_credit", newCredit) }
-                    // Reset snapshot: sesi baru dimulai dari nilai kredit saat ini.
-                    creditAtSessionStart = newCredit
-                    creditSessionStart   = currentTime
-                    lastCreditWriteMs    = currentTime
-                    
-                    // Jika kredit habis, reset session agar tidak salah hitung saat app berubah
-                    if (newCredit == 0L) {
-                        creditSessionStart = 0L
-                        lastKnownForeground = ""
-                    }
-                }
-                false
-            }
-            currentTime - regularLockShownAt > 3_000L || regularLockShownAt == 0L -> {
+        // Sync ke SharedPreferences setiap 2 detik (lebih jarang agar hemat IO)
+        if (currentTime - lastCreditWriteMs >= 2000L) {
+            prefs.edit { putLong("remaining_credit", currentEffectiveCredit) }
+            lastCreditWriteMs = currentTime
+        }
+
+        // Tampilkan Lock Screen jika kredit habis DAN tidak dalam grace period
+        if (currentEffectiveCredit <= 0 && !inGracePeriod && !checkHasPledgeCredit()) {
+            if (currentTime - regularLockShownAt > 3_000L || regularLockShownAt == 0L) {
                 showLockScreen(
                     LockActivity::class.java, foregroundApp,
                     "Waktu Istirahat 📵", "Baca Al-Qur'an dulu untuk melanjutkan",
                     NOTIF_ID_LOCK, null
                 )
-                true
+                return true
             }
-            else -> false
         }
+        
+        return false
     }
 
     private fun showLockScreen(targetClass: Class<*>, targetPackage: String, notifTitle: String, notifText: String, notifId: Int, activePrayer: String? = null) {
-        // ── STEP 1: Nyalakan layar secara agresif (wajib sebelum launch Activity) ──
+        // ── STEP 1: WakeLock untuk memastikan sistem tetap terjaga saat memproses intent ──
         try {
             val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
             @Suppress("DEPRECATION")
             val wakeLock = pm.newWakeLock(
-                PowerManager.FULL_WAKE_LOCK or
-                        PowerManager.ACQUIRE_CAUSES_WAKEUP or
-                        PowerManager.ON_AFTER_RELEASE,
+                PowerManager.PARTIAL_WAKE_LOCK,
                 "Ungker:LockWakeup"
             )
-            wakeLock.acquire(5_000L)
+            wakeLock.acquire(3_000L)
         } catch (_: Exception) {}
 
         // ── STEP 2: Intent dengan semua flag yang dibutuhkan ──────────────────────
@@ -553,6 +690,60 @@ class UngkerService : Service() {
         } catch (_: Exception) {}
     }
 
+    private fun showUnblockedSocialMediaNotification(packageName: String) {
+        val currentTime = System.currentTimeMillis()
+        if (currentTime - lastUnblockedWarnShownAt < UNBLOCKED_NOTIF_COOLDOWN) return
+        lastUnblockedWarnShownAt = currentTime
+
+        try {
+            val appName = packageManager.getApplicationLabel(
+                packageManager.getApplicationInfo(packageName, 0)
+            ).toString()
+
+            // Intent untuk Activity yang akan muncul di depan (Lock Screen)
+            val lockIntent = Intent(this, SocialMediaLockActivity::class.java).apply {
+                putExtra("target_package", packageName) // Kunci harus sesuai dengan Activity
+                putExtra("is_warning", true)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            }
+
+            val pendingFlags = PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) PendingIntent.FLAG_MUTABLE else 0)
+            val fullScreenPendingIntent = PendingIntent.getActivity(this, NOTIF_ID_UNBLOCKED_WARN, lockIntent, pendingFlags)
+
+            val notification = NotificationCompat.Builder(this, CHANNEL_WARNING)
+                .setSmallIcon(android.R.drawable.ic_dialog_alert)
+                .setContentTitle(LocaleManager.safeLF("service_not_secured", appName))
+                .setContentText(LocaleManager.safeL("service_app_not_enabled"))
+                .setPriority(NotificationCompat.PRIORITY_MAX)
+                .setCategory(NotificationCompat.CATEGORY_ALARM)
+                .setFullScreenIntent(fullScreenPendingIntent, true) // Muncul di depan layar
+                .setContentIntent(fullScreenPendingIntent)
+                .setAutoCancel(true)
+                .setDefaults(Notification.DEFAULT_VIBRATE or Notification.DEFAULT_LIGHTS)
+                .setVibrate(longArrayOf(0, 500, 200, 500))
+                .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                .setLights(Color.RED, 3000, 3000)
+                .build()
+
+            // Tampilkan Notifikasi
+            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            nm.notify(NOTIF_ID_UNBLOCKED_WARN, notification)
+
+            // Wake up screen secara paksa
+            try {
+                val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+                @Suppress("DEPRECATION")
+                val wakeLock = pm.newWakeLock(PowerManager.FULL_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP or PowerManager.ON_AFTER_RELEASE, "Ungker:UnblockWarn")
+                wakeLock.acquire(10_000L)
+            } catch (e: Exception) {
+                Log.e("UngkerService", "WakeLock error: ${e.message}")
+            }
+
+        } catch (e: Exception) {
+            Log.e("UngkerService", "Failed to show unblocked warning: ${e.message}")
+        }
+    }
+
     @RequiresApi(Build.VERSION_CODES.O)
     private fun setupNotificationChannels() {
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -562,6 +753,28 @@ class UngkerService : Service() {
             NotificationChannel(CHANNEL_GUARDIAN, "Ungker Guardian", NotificationManager.IMPORTANCE_LOW).also {
                 nm.createNotificationChannel(it)
             }
+        }
+
+        // Channel Warning: IMPORTANCE_HIGH agar popup di layar dan berdering
+        val existingWarningChannel = nm.getNotificationChannel(CHANNEL_WARNING)
+        if (existingWarningChannel == null || existingWarningChannel.importance < NotificationManager.IMPORTANCE_HIGH) {
+            // Hapus channel lama jika ada tapi tidak MAX, untuk memaksa update
+            if (existingWarningChannel != null) {
+                nm.deleteNotificationChannel(CHANNEL_WARNING)
+            }
+            
+            NotificationChannel(CHANNEL_WARNING, "Peringatan", NotificationManager.IMPORTANCE_HIGH).apply {
+                description = "Peringatan keamanan - tampil di layar tanpa suara (hanya getar)"
+                setShowBadge(true)
+                enableLights(true)
+                lightColor = Color.RED
+                enableVibration(true)
+                vibrationPattern = longArrayOf(0, 500, 200, 500)
+                lockscreenVisibility = Notification.VISIBILITY_PUBLIC
+                setBypassDnd(true)
+                // Hapus suara (hanya getar)
+                setSound(null, null)
+            }.also { nm.createNotificationChannel(it) }
         }
 
         // Channel Lock: IMPORTANCE_HIGH wajib agar fullScreenIntent bisa ditrigger
@@ -583,6 +796,17 @@ class UngkerService : Service() {
             NotificationChannel(CHANNEL_PERMISSION, "Izin Diperlukan", NotificationManager.IMPORTANCE_HIGH).also {
                 nm.createNotificationChannel(it)
             }
+        }
+        
+        // Channel Prayer Reminder - Vibration only, no sound
+        if (nm.getNotificationChannel(CHANNEL_PRAYER_REMINDER) == null) {
+            NotificationChannel(CHANNEL_PRAYER_REMINDER, "Jadwal Sholat", NotificationManager.IMPORTANCE_HIGH).apply {
+                description = "Pengingat waktu sholat - 10 menit sebelum adzan"
+                enableVibration(true)
+                vibrationPattern = longArrayOf(0, 500, 200, 500, 200, 500, 200, 500, 200, 500)
+                setShowBadge(false)
+                setSound(null, null)
+            }.also { nm.createNotificationChannel(it) }
         }
     }
 
@@ -672,12 +896,7 @@ class UngkerService : Service() {
     private fun isScreenOn(): Boolean {
         val pm = getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
         return try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT_WATCH) {
-                pm.isInteractive
-            } else {
-                @Suppress("DEPRECATION")
-                pm.isScreenOn
-            }
+            pm.isInteractive
         } catch (e: Exception) { true }
     }
 

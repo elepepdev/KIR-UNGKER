@@ -57,12 +57,15 @@ data class AppInfo(
 private val iconCache = java.util.concurrent.ConcurrentHashMap<String, ImageBitmap>()
 
 @Composable
-fun DaftarAplikasiScreen(isDarkMode: Boolean = false) {
+fun DaftarAplikasiScreen(isDarkMode: Boolean = false, highlightPackage: String? = null) {
     val context = LocalContext.current
     val pm = context.packageManager
     var apps by remember { mutableStateOf<List<AppInfo>>(emptyList()) }
     var searchQuery by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(true) }
+
+    // LazyColumn state for auto-scrolling
+    val lazyListState = androidx.compose.foundation.lazy.rememberLazyListState()
 
     val sharedPref = context.getSharedPreferences("UNGKER_PREF", Context.MODE_PRIVATE)
     val userRole = remember { sharedPref.getString("user_role", "personal") ?: "personal" }
@@ -80,24 +83,24 @@ fun DaftarAplikasiScreen(isDarkMode: Boolean = false) {
     var showConfirm2 by remember { mutableStateOf(false) }
     var showConfirm3 by remember { mutableStateOf(false) }
     var promiseInput by remember { mutableStateOf("") }
-    val correctPromise = "Aku berjanji nanti akan mengaktifkan pemblokiran untuk aplikasi ini demi kebaikanku sendiri"
+    val correctPromise = "Aku menonaktifkan pengaturan ini dengan kesadaranku sendiri"
 
     // Dialogs
     if (showConfirm1) {
         PremiumAlertDialog(
             onDismiss = { showConfirm1 = false; appToUnblock = null },
-            title = "Konfirmasi",
-            text = "Apakah kamu yakin mau menonaktifkan pemblokiran untuk aplikasi ini ?",
-            confirmLabel = "Yakin",
+            title = LocaleManager.L("confirm_title"),
+            text = LocaleManager.L("confirm_unblock"),
+            confirmLabel = LocaleManager.L("confirm_yes"),
             onConfirm = { showConfirm1 = false; showConfirm2 = true }
         )
     }
     if (showConfirm2) {
         PremiumAlertDialog(
             onDismiss = { showConfirm2 = false; appToUnblock = null },
-            title = "Peringatan",
-            text = "Ayolah, ini untuk kebaikanmu sendiri. 🥺🥀",
-            confirmLabel = "Tetap matikan",
+            title = LocaleManager.L("dialog_warning_title"),
+            text = LocaleManager.L("confirm_warning"),
+            confirmLabel = LocaleManager.L("confirm_still"),
             onConfirm = { showConfirm2 = false; showConfirm3 = true }
         )
     }
@@ -149,9 +152,9 @@ fun DaftarAplikasiScreen(isDarkMode: Boolean = false) {
 
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     when (app.category) {
-                        ApplicationInfo.CATEGORY_SOCIAL -> { categoryStr = "Sosial Media"; isTarget = true }
-                        ApplicationInfo.CATEGORY_GAME -> { categoryStr = "Game"; isTarget = true }
-                        ApplicationInfo.CATEGORY_VIDEO -> { categoryStr = "Hiburan"; isTarget = true }
+                        ApplicationInfo.CATEGORY_SOCIAL -> { categoryStr = LocaleManager.L("app_category_social"); isTarget = true }
+                        ApplicationInfo.CATEGORY_GAME -> { categoryStr = LocaleManager.L("app_category_game"); isTarget = true }
+                        ApplicationInfo.CATEGORY_VIDEO -> { categoryStr = LocaleManager.L("app_category_entertainment"); isTarget = true }
                         else -> {}
                     }
                 }
@@ -161,7 +164,7 @@ fun DaftarAplikasiScreen(isDarkMode: Boolean = false) {
                     lowerPackage.contains("twitter") || lowerPackage.contains("game") ||
                     lowerPackage.contains("mobile.legends")) {
                     isTarget = true
-                    if (categoryStr == "Lainnya") categoryStr = if (lowerPackage.contains("game")) "Game" else "Hiburan"
+                    if (categoryStr == "Lainnya") categoryStr = if (lowerPackage.contains("game")) LocaleManager.L("app_category_game") else LocaleManager.L("app_category_entertainment")
                 }
 
                 if (isTarget) AppInfo(name, packageName, categoryStr) else null
@@ -190,14 +193,14 @@ fun DaftarAplikasiScreen(isDarkMode: Boolean = false) {
             
             Column {
                 Text(
-                    "PROTEKSI FOKUS",
+                    LocaleManager.L("app_list_main_title"),
                     style = MaterialTheme.typography.labelMedium,
                     color = greenAccent(),
                     fontWeight = FontWeight.ExtraBold,
                     letterSpacing = 3.sp
                 )
                 Text(
-                    "Daftar Aplikasi",
+                    LocaleManager.L("app_list_sub_title"),
                     fontSize = 32.sp,
                     fontWeight = FontWeight.Black,
                     color = textPrimC(),
@@ -230,13 +233,24 @@ fun DaftarAplikasiScreen(isDarkMode: Boolean = false) {
                     CircularProgressIndicator(color = greenAccent(), strokeWidth = 3.dp)
                 }
             } else {
+                // Auto-scroll to highlighted package
+                LaunchedEffect(highlightPackage, apps) {
+                    if (highlightPackage != null && apps.isNotEmpty()) {
+                        val index = apps.indexOfFirst { it.packageName == highlightPackage }
+                        if (index >= 0) {
+                            lazyListState.animateScrollToItem(index, scrollOffset = -100)
+                        }
+                    }
+                }
+
                 LazyColumn(
+                    state = lazyListState,
                     contentPadding = PaddingValues(bottom = 40.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
                     item {
                         Text(
-                            "Aplikasi Terpasang (${filteredApps.size})",
+                            LocaleManager.LF("app_list_installed", filteredApps.size),
                             style = MaterialTheme.typography.titleSmall,
                             color = textMutC(),
                             fontWeight = FontWeight.Bold,
@@ -285,7 +299,7 @@ private fun GlassSummaryCard(blockedCount: Int, isAllSelected: Boolean, onToggle
                 border = BorderStroke(1.dp, greenAccent().copy(0.2f))
             ) {
                 Box(contentAlignment = Alignment.Center) {
-                    Text("🛡️", fontSize = 26.sp)
+                    Text(LocaleManager.L("app_shield"), fontSize = 26.sp)
                 }
             }
             
@@ -293,13 +307,13 @@ private fun GlassSummaryCard(blockedCount: Int, isAllSelected: Boolean, onToggle
             
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    "$blockedCount Terkunci",
+                    LocaleManager.LF("app_list_locked_count", blockedCount),
                     color = textPrimC(),
                     fontWeight = FontWeight.ExtraBold,
                     fontSize = 22.sp
                 )
                 Text(
-                    if (blockedCount > 0) "Sistem Proteksi Aktif" else "Belum Ada Proteksi",
+                    if (blockedCount > 0) LocaleManager.L("app_list_protection_active") else LocaleManager.L("app_list_no_protection"),
                     color = if (blockedCount > 0) greenAccent() else textMutC(),
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold
@@ -317,7 +331,7 @@ private fun GlassSummaryCard(blockedCount: Int, isAllSelected: Boolean, onToggle
                 border = BorderStroke(1.dp, greenAccent().copy(0.2f))
             ) {
                 Text(
-                    if (isAllSelected) "BATAL" else "SEMUA",
+                    if (isAllSelected) LocaleManager.L("app_list_btn_cancel") else LocaleManager.L("app_list_btn_all"),
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Black,
                     letterSpacing = 1.sp
@@ -335,7 +349,7 @@ private fun PremiumSearchBar(query: String, onValueChange: (String) -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .border(1.dp, borderC().copy(alpha = 0.3f), CircleShape),
-        placeholder = { Text("Cari aplikasi...", color = textMutC().copy(0.6f), fontSize = 15.sp) },
+        placeholder = { Text(LocaleManager.L("app_search_placeholder"), color = textMutC().copy(0.6f), fontSize = 15.sp) },
         leadingIcon = { Icon(Icons.Default.Search, null, tint = greenAccent(), modifier = Modifier.size(20.dp)) },
         shape = CircleShape,
         singleLine = true,
@@ -463,7 +477,7 @@ private fun PremiumAlertDialog(onDismiss: () -> Unit, title: String, text: Strin
             ) { Text(confirmLabel, color = cardBg(), fontWeight = FontWeight.Bold) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("BATAL", color = textMutC(), fontWeight = FontWeight.Bold) }
+            TextButton(onClick = onDismiss) { Text(LocaleManager.L("button_batal"), color = textMutC(), fontWeight = FontWeight.Bold) }
         },
         modifier = Modifier.border(1.dp, borderC().copy(0.1f), RoundedCornerShape(28.dp))
     )
@@ -482,10 +496,10 @@ private fun ParentPasswordConfirmDialog(
         onDismissRequest = onDismiss,
         containerColor = cardBg(),
         shape = RoundedCornerShape(28.dp),
-        title = { Text("KONFIRMASI ORANG TUA", color = greenAccent(), fontWeight = FontWeight.Black, letterSpacing = 2.sp, fontSize = 14.sp) },
+        title = { Text(LocaleManager.L("parent_confirm_title"), color = greenAccent(), fontWeight = FontWeight.Black, letterSpacing = 2.sp, fontSize = 14.sp) },
         text = {
             Column {
-                Text("Masukkan password orang tua untuk menonaktifkan blokir aplikasi ini.", color = textMutC(), fontSize = 14.sp)
+                Text(LocaleManager.L("parent_confirm_desc"), color = textMutC(), fontSize = 14.sp)
                 Spacer(Modifier.height(16.dp))
                 OutlinedTextField(
                     value = input,
@@ -494,7 +508,7 @@ private fun ParentPasswordConfirmDialog(
                         isError = false
                     },
                     modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("Password", color = textMutC().copy(0.3f), fontSize = 13.sp) },
+                    placeholder = { Text(LocaleManager.L("parent_password_field"), color = textMutC().copy(0.3f), fontSize = 13.sp) },
                     shape = RoundedCornerShape(12.dp),
                     isError = isError,
                     visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
@@ -506,7 +520,7 @@ private fun ParentPasswordConfirmDialog(
                     )
                 )
                 if (isError) {
-                    Text("Password salah!", color = Color.Red, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
+                    Text(LocaleManager.L("parent_password_error"), color = Color.Red, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
                 }
             }
         },
@@ -521,10 +535,10 @@ private fun ParentPasswordConfirmDialog(
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = greenAccent()),
                 shape = RoundedCornerShape(14.dp)
-            ) { Text("BUKA BLOKIR", color = cardBg(), fontWeight = FontWeight.Bold) }
+            ) { Text(LocaleManager.L("parent_unlock_button"), color = cardBg(), fontWeight = FontWeight.Bold) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("BATAL", color = textMutC(), fontWeight = FontWeight.Bold) }
+            TextButton(onClick = onDismiss) { Text(LocaleManager.L("button_batal"), color = textMutC(), fontWeight = FontWeight.Bold) }
         },
         modifier = Modifier.border(1.dp, borderC().copy(0.1f), RoundedCornerShape(28.dp))
     )
@@ -536,10 +550,10 @@ private fun PremiumPromiseDialog(promiseInput: String, onValueChange: (String) -
         onDismissRequest = onDismiss,
         containerColor = cardBg(),
         shape = RoundedCornerShape(28.dp),
-        title = { Text("JANJI SPIRITUAL", color = greenAccent(), fontWeight = FontWeight.Black, letterSpacing = 2.sp, fontSize = 14.sp) },
+        title = { Text(LocaleManager.L("promise_dialog_title"), color = greenAccent(), fontWeight = FontWeight.Black, letterSpacing = 2.sp, fontSize = 14.sp) },
         text = {
             Column {
-                Text("Ketik janji berikut untuk menonaktifkan:", color = textMutC(), fontSize = 12.sp)
+                Text(LocaleManager.L("promise_dialog_desc"), color = textMutC(), fontSize = 12.sp)
                 Spacer(Modifier.height(8.dp))
                 Text("\"$correctPromise\"", color = greenAccent(), fontSize = 13.sp, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic, lineHeight = 20.sp)
                 Spacer(Modifier.height(16.dp))
@@ -547,7 +561,7 @@ private fun PremiumPromiseDialog(promiseInput: String, onValueChange: (String) -
                     value = promiseInput,
                     onValueChange = onValueChange,
                     modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("Ketik di sini...", color = textMutC().copy(0.3f), fontSize = 13.sp) },
+                    placeholder = { Text(LocaleManager.L("promise_dialog_placeholder"), color = textMutC().copy(0.3f), fontSize = 13.sp) },
                     shape = RoundedCornerShape(12.dp),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = greenAccent(),
@@ -560,11 +574,11 @@ private fun PremiumPromiseDialog(promiseInput: String, onValueChange: (String) -
         },
         confirmButton = {
             Button(
-                enabled = promiseInput.trim() == correctPromise,
+                enabled = promiseInput.trim().lowercase() == correctPromise.lowercase(),
                 onClick = onConfirm,
                 colors = ButtonDefaults.buttonColors(containerColor = greenAccent(), disabledContainerColor = textMutC().copy(0.05f)),
                 shape = RoundedCornerShape(14.dp)
-            ) { Text("KONFIRMASI", color = if (promiseInput.trim() == correctPromise) cardBg() else textMutC(), fontWeight = FontWeight.Bold) }
+            ) { Text(LocaleManager.L("promise_confirm"), color = if (promiseInput.trim() == correctPromise) cardBg() else textMutC(), fontWeight = FontWeight.Bold) }
         },
         modifier = Modifier.border(1.dp, borderC().copy(0.1f), RoundedCornerShape(28.dp))
     )

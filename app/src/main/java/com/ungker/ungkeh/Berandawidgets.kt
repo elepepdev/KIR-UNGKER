@@ -45,6 +45,7 @@ import java.util.Locale
 import android.util.Log
 import java.util.concurrent.TimeUnit
 import android.app.usage.UsageStatsManager
+import android.content.Intent
 
 fun getDistractionTimeToday(context: Context): String {
     val cal = Calendar.getInstance().apply {
@@ -125,6 +126,15 @@ fun BerandaScreen(
                 HeaderDashboard(userName = userName, isDarkMode = isDarkMode, onToggleDarkMode = onToggleDarkMode)
             }
         }
+
+        item {
+            AnimatedVisibility(
+                visible = visible,
+                enter = fadeIn(tween(600, delayMillis = 50)) + slideInVertically(initialOffsetY = { 40 })
+            ) {
+                UnprotectedSocialMediaWarningCard()
+            }
+        }
         
         item {
             AnimatedVisibility(
@@ -163,8 +173,7 @@ fun BerandaScreen(
                 enter = fadeIn(tween(600, delayMillis = 400))
             ) {
                 Column {
-                    Text(
-                        "Aktivitas Hari Ini",
+                    Text(LocaleManager.L("home_activity_today"),
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = textPrimC()
@@ -175,7 +184,7 @@ fun BerandaScreen(
                             modifier = Modifier.weight(1f),
                             icon = Icons.Default.PhoneAndroid,
                             value = distractionTime,
-                            label = "Akses Medsos & Game",
+                            label = LocaleManager.L("home_stat_access"),
                             iconBg = if (isDarkMode) Color(0xFF1E3A5F) else Color(0xFFE3F2FD),
                             iconColor = if (isDarkMode) Color(0xFF90CAF9) else Color(0xFF1976D2)
                         )
@@ -184,7 +193,7 @@ fun BerandaScreen(
                             modifier = Modifier.weight(1f),
                             icon = Icons.Default.Block,
                             value = blockedCount.toString(),
-                            label = "Aplikasi Dikunci",
+                            label = LocaleManager.L("home_stat_locked"),
                             iconBg = if (isDarkMode) Color(0xFF3B1F1F) else Color(0xFFFDE7E7),
                             iconColor = if (isDarkMode) Color(0xFFEF9A9A) else Color(0xFFD32F2F)
                         )
@@ -205,6 +214,100 @@ fun BerandaScreen(
 }
 
 @Composable
+fun UnprotectedSocialMediaWarningCard() {
+    val context = LocalContext.current
+    var unblockedApps by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
+
+    LaunchedEffect(Unit) {
+        withContext(Dispatchers.IO) {
+            val dfManager = DeepFrictionManager(context)
+            unblockedApps = dfManager.getUnblockedSocialMediaApps()
+        }
+    }
+
+    if (unblockedApps.isNotEmpty()) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF3E0)),
+            elevation = CardDefaults.cardElevation(2.dp)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        Icons.Default.Warning,
+                        contentDescription = null,
+                        tint = Color(0xFFE65100),
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    Column {
+                        Text(
+                            LocaleManager.L("home_unprotected_title"),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFFE65100)
+                        )
+                        Text(
+                            LocaleManager.LF("home_unprotected_desc", unblockedApps.size),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = Color(0xFF795548)
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                unblockedApps.take(3).forEach { (pkg, name) ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                val intent = Intent(context, MainActivity::class.java).apply {
+                                    putExtra("initial_tab", 1)
+                                    putExtra("highlight_package", pkg)
+                                }
+                                context.startActivity(intent)
+                            }
+                            .padding(vertical = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(name, style = MaterialTheme.typography.bodyMedium, color = Color(0xFF5D4037))
+                        Icon(
+                            Icons.Default.ChevronRight,
+                            contentDescription = null,
+                            tint = Color(0xFF8D6E63),
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+                if (unblockedApps.size > 3) {
+                    Text(
+                        LocaleManager.LF("home_others", unblockedApps.size - 3),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF795548),
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                Button(
+                    onClick = {
+                        val intent = Intent(context, MainActivity::class.java).apply {
+                            putExtra("initial_tab", 1)
+                        }
+                        context.startActivity(intent)
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE65100)),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text(LocaleManager.L("home_see_app_list"))
+                }
+            }
+        }
+    }
+}
+
+@Composable
 fun HeaderDashboard(userName: String, isDarkMode: Boolean, onToggleDarkMode: () -> Unit) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -212,16 +315,17 @@ fun HeaderDashboard(userName: String, isDarkMode: Boolean, onToggleDarkMode: () 
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column {
-            Text("Assalamu'alaikum,", style = MaterialTheme.typography.bodyLarge, color = textSecC())
+            Text(LocaleManager.L("home_greeting"), style = MaterialTheme.typography.bodyLarge, color = textSecC())
             Text("$userName! 👋", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = textPrimC())
         }
         IconButton(
             onClick = onToggleDarkMode,
             modifier = Modifier.background(cardBg(), CircleShape)
         ) {
+            val contentDesc = if (isDarkMode) LocaleManager.L("theme_light") else LocaleManager.L("theme_dark")
             Icon(
                 imageVector = if (isDarkMode) Icons.Default.LightMode else Icons.Default.DarkMode,
-                contentDescription = "Ganti Tema",
+                contentDescription = contentDesc,
                 tint = textPrimC()
             )
         }
@@ -254,7 +358,7 @@ fun TimerCard(remainingTimeMillis: Long, progress: Float, onTambahWaktu: () -> U
         Column(modifier = Modifier.padding(24.dp)) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Column {
-                    Text("Sisa Waktu Akses", style = MaterialTheme.typography.labelMedium, color = textSecC())
+                    Text(LocaleManager.L("home_remaining_time"), style = MaterialTheme.typography.labelMedium, color = textSecC())
                     val hours = TimeUnit.MILLISECONDS.toHours(remainingTimeMillis)
                     val minutes = TimeUnit.MILLISECONDS.toMinutes(remainingTimeMillis) % 60
                     val seconds = TimeUnit.MILLISECONDS.toSeconds(remainingTimeMillis) % 60
@@ -266,7 +370,7 @@ fun TimerCard(remainingTimeMillis: Long, progress: Float, onTambahWaktu: () -> U
                 Button(onClick = onTambahWaktu, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)), shape = RoundedCornerShape(12.dp)) {
                     Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text("Tambah", fontWeight = FontWeight.Bold)
+                    Text(LocaleManager.L("home_add_time"), fontWeight = FontWeight.Bold)
                 }
             }
             Spacer(modifier = Modifier.height(20.dp))
@@ -277,7 +381,7 @@ fun TimerCard(remainingTimeMillis: Long, progress: Float, onTambahWaktu: () -> U
                 trackColor = trackBg()
             )
             Spacer(modifier = Modifier.height(8.dp))
-            Text("Baca Quran untuk menambah waktu akses aplikasi hiburan", style = MaterialTheme.typography.bodySmall, color = textMutC())
+            Text(LocaleManager.L("widget_read_quran"), style = MaterialTheme.typography.bodySmall, color = textMutC())
         }
     }
 }
@@ -285,10 +389,10 @@ fun TimerCard(remainingTimeMillis: Long, progress: Float, onTambahWaktu: () -> U
 @Composable
 fun MotivasiCard() {
     val quotes = listOf(
-        "\"Maka sesungguhnya bersama kesulitan ada kemudahan.\" (QS. Al-Insyirah: 5)",
-        "\"Dan barangsiapa bertawakal kepada Allah, niscaya Allah akan mencukupkan (keperluan)nya.\" (QS. At-Talaq: 3)",
-        "\"Sebaik-baik kalian adalah orang yang belajar Al-Qur'an dan mengajarkannya.\" (HR. Bukhari)",
-        "\"Hati yang tenang lahir dari tilawah yang rutin.\""
+        LocaleManager.L("quote_1"),
+        LocaleManager.L("quote_2"),
+        LocaleManager.L("quote_3"),
+        LocaleManager.L("quote_4")
     )
     val quote = remember { quotes.random() }
 
@@ -301,7 +405,7 @@ fun MotivasiCard() {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Default.Lightbulb, contentDescription = null, tint = Color.White.copy(alpha = 0.8f), modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(8.dp))
-                Text("Motivasi Hari Ini", color = Color.White.copy(alpha = 0.8f), style = MaterialTheme.typography.labelMedium)
+                Text(LocaleManager.L("home_motivation_title"), color = Color.White.copy(alpha = 0.8f), style = MaterialTheme.typography.labelMedium)
             }
             Spacer(modifier = Modifier.height(8.dp))
             Text(text = quote, color = Color.White, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Bold, lineHeight = 24.sp)
@@ -384,11 +488,11 @@ fun CompatibilityCard() {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("⚠️", fontSize = 20.sp)
                 Spacer(Modifier.width(12.dp))
-                Text("Optimasi Perangkat Terdeteksi", fontWeight = FontWeight.Bold, color = textPrimC())
+                Text(LocaleManager.L("home_compatibility_detected"), fontWeight = FontWeight.Bold, color = textPrimC())
             }
             Spacer(Modifier.height(8.dp))
             Text(
-                "Sistem HP Anda membatasi fitur lock screen otomatis. Mohon aktifkan izin berikut agar UNGKER bisa berfungsi 100%:",
+                LocaleManager.L("home_compatibility_desc"),
                 style = MaterialTheme.typography.bodySmall,
                 color = textSecC()
             )
@@ -397,7 +501,7 @@ fun CompatibilityCard() {
             // Item 1: Battery (Universal)
             if (needsBatteryFix) {
                 CompatibilityItem(
-                    label = "Abaikan Optimasi Baterai",
+                    label = LocaleManager.L("home_perm_battery"),
                     isDone = false,
                     onClick = { CompatibilityUtils.requestIgnoreBatteryOptimization(context) }
                 )
@@ -407,7 +511,7 @@ fun CompatibilityCard() {
             // Item 2: Android 14 Full Screen Intent (Universal)
             if (needsAndroid14Fix) {
                 CompatibilityItem(
-                    label = "Izin Tampil di Layar Kunci (Android 14)",
+                    label = LocaleManager.L("home_perm_overlay"),
                     isDone = false,
                     onClick = { CompatibilityUtils.openFullScreenIntentSettings(context) }
                 )
@@ -417,7 +521,7 @@ fun CompatibilityCard() {
             // Item 2.5: Exact Alarm (Krusial untuk Oppo/Realme)
             if (needsExactAlarmFix) {
                 CompatibilityItem(
-                    label = "Izin Penjadwalan Tepat (Wajib)",
+                    label = LocaleManager.L("home_perm_alarm"),
                     isDone = false,
                     onClick = { CompatibilityUtils.openExactAlarmSettings(context) }
                 )
@@ -428,7 +532,7 @@ fun CompatibilityCard() {
             if (isXiaomi) {
                 if (!isMiuiPopupDone) {
                     CompatibilityItem(
-                        label = "Tampil Pop-up Latar Belakang",
+                        label = LocaleManager.L("home_perm_popup"),
                         isDone = false,
                         onClick = { CompatibilityUtils.openMiuiPopupPermission(context) }
                     )
@@ -436,7 +540,7 @@ fun CompatibilityCard() {
                 }
                 if (!isMiuiLockDone) {
                     CompatibilityItem(
-                        label = "Tampil di Kunci Layar",
+                        label = LocaleManager.L("home_perm_lock"),
                         isDone = false,
                         onClick = { CompatibilityUtils.openMiuiPopupPermission(context) }
                     )
@@ -444,7 +548,7 @@ fun CompatibilityCard() {
                 }
                 // Auto start (Gak bisa dicek, tampilkan saja sebagai info)
                 CompatibilityItem(
-                    label = "Izin Auto-start",
+                    label = LocaleManager.L("home_perm_autostart"),
                     isDone = false, 
                     onClick = { CompatibilityUtils.openAutoStartSettings(context) }
                 )
@@ -453,7 +557,7 @@ fun CompatibilityCard() {
             // Item 4: Oppo/Realme/Vivo Specifics
             else if (isOppoRealme || isVivo || isHuawei) {
                 CompatibilityItem(
-                    label = "Izin Jendela Mengambang (Oppo/Realme/Vivo)",
+                    label = LocaleManager.L("home_perm_floating"),
                     isDone = false,
                     onClick = { CompatibilityUtils.openShowOnLockScreenSettings(context) }
                 )
@@ -467,11 +571,11 @@ fun CompatibilityCard() {
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)),
                     shape = RoundedCornerShape(10.dp)
                 ) {
-                    Text("Sudah Saya Aktifkan ✅", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    Text(LocaleManager.L("home_already_enabled"), fontSize = 13.sp, fontWeight = FontWeight.Bold)
                 }
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    "Setelah saklar UNGKER di pengaturan aktif, klik tombol di atas untuk menghilangkan peringatan ini.",
+                    LocaleManager.L("home_compatibility_oem_desc"),
                     style = MaterialTheme.typography.labelSmall,
                     color = textMutC(),
                     modifier = Modifier.padding(start = 8.dp)
@@ -518,11 +622,11 @@ fun AyatReadCard(totalVerses: Int, dailyVerses: Int, readingStreak: Int) {
                 }
                 Spacer(modifier = Modifier.width(16.dp))
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("Progres Membaca", style = MaterialTheme.typography.labelMedium, color = textSecC())
-                    Text("$dailyVerses Ayat Hari Ini", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = textPrimC())
+                    Text(LocaleManager.L("home_read_progress"), style = MaterialTheme.typography.labelMedium, color = textSecC())
+                    Text(LocaleManager.LF("home_verses_today", dailyVerses), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = textPrimC())
                 }
                 Column(horizontalAlignment = Alignment.End) {
-                    Text("Total", style = MaterialTheme.typography.labelSmall, color = textSecC())
+                    Text(LocaleManager.L("home_total"), style = MaterialTheme.typography.labelSmall, color = textSecC())
                     Text("$totalVerses", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32))
                 }
             }
@@ -534,7 +638,7 @@ fun AyatReadCard(totalVerses: Int, dailyVerses: Int, readingStreak: Int) {
                     Icon(Icons.Default.Whatshot, contentDescription = null, tint = Color(0xFFE65100), modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(8.dp))
                     Text(
-                        "Streak $readingStreak hari",
+                        LocaleManager.LF("home_streak_days", readingStreak),
                         style = MaterialTheme.typography.labelLarge,
                         fontWeight = FontWeight.Bold,
                         color = Color(0xFFE65100)
@@ -633,10 +737,10 @@ fun JadwalSholatCard() {
     if (showCityPicker) {
         AlertDialog(
             onDismissRequest = { showCityPicker = false },
-            title = { Text("Pilih Kota", fontWeight = FontWeight.Bold) },
+            title = { Text(LocaleManager.L("sholat_picker_title"), fontWeight = FontWeight.Bold) },
             text = {
                 Column {
-                    Text("Pilih kota terdekat dengan lokasimu:", style = MaterialTheme.typography.bodyMedium, color = Color(0xFF757575))
+                    Text(LocaleManager.L("sholat_picker_desc"), style = MaterialTheme.typography.bodyMedium, color = Color(0xFF757575))
                     Spacer(modifier = Modifier.height(12.dp))
                     ExposedDropdownMenuBox(expanded = cityExpanded, onExpandedChange = { cityExpanded = !cityExpanded }) {
                         OutlinedTextField(
@@ -657,7 +761,7 @@ fun JadwalSholatCard() {
                     }
                 }
             },
-            confirmButton = { TextButton(onClick = { showCityPicker = false }) { Text("Tutup") } }
+            confirmButton = { TextButton(onClick = { showCityPicker = false }) { Text(LocaleManager.L("sholat_picker_close")) } }
         )
     }
 
@@ -669,9 +773,9 @@ fun JadwalSholatCard() {
         Column(modifier = Modifier.padding(20.dp)) {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Column {
-                    Text("Jadwal Sholat", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = textPrimC())
+                    Text(LocaleManager.L("sholat_card_title"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = textPrimC())
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(if (isLoadingGps) "Mencari lokasi..." else locationLabel, style = MaterialTheme.typography.bodySmall, color = textSecC())
+                        Text(if (isLoadingGps) LocaleManager.L("home_searching_location") else locationLabel, style = MaterialTheme.typography.bodySmall, color = textSecC())
                         if (isGpsMode) { Spacer(Modifier.width(4.dp)); Icon(Icons.Default.LocationOn, contentDescription = null, modifier = Modifier.size(12.dp), tint = Color(0xFF2E7D32)) }
                     }
                 }
@@ -680,13 +784,13 @@ fun JadwalSholatCard() {
                     modifier = Modifier.size(32.dp).background(greenBgC(), CircleShape)
                 ) {
                     if (isLoadingGps) CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = Color(0xFF2E7D32))
-                    else Icon(Icons.Default.Language, contentDescription = "Lokasi", tint = Color(0xFF2E7D32), modifier = Modifier.size(18.dp))
+                    else Icon(Icons.Default.Language, contentDescription = LocaleManager.L("home_icon_location"), tint = Color(0xFF2E7D32), modifier = Modifier.size(18.dp))
                 }
             }
             Spacer(modifier = Modifier.height(16.dp))
             prayerTimes?.let { pt ->
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                    SholatItem("Subuh", pt.subuh); SholatItem("Dzuhur", pt.dzuhur); SholatItem("Ashar", pt.ashar); SholatItem("Maghrib", pt.maghrib); SholatItem("Isya", pt.isya)
+                    SholatItem(LocaleManager.L("prayer_subuh"), pt.subuh); SholatItem(LocaleManager.L("prayer_dzuhur"), pt.dzuhur); SholatItem(LocaleManager.L("prayer_ashar"), pt.ashar); SholatItem(LocaleManager.L("prayer_maghrib"), pt.maghrib); SholatItem(LocaleManager.L("prayer_isya"), pt.isya)
                 }
             } ?: Box(Modifier.fillMaxWidth().height(40.dp), contentAlignment = Alignment.Center) {
                 CircularProgressIndicator(color = Color(0xFF2E7D32))

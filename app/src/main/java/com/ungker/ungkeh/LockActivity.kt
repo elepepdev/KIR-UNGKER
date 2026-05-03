@@ -133,7 +133,7 @@ class LockActivity : ComponentActivity() {
                 if (targetPackage == null) {
                     finish()
                 } else {
-                    Toast.makeText(this@LockActivity, "Selesaikan tantangan untuk membuka kunci", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@LockActivity, LocaleManager.L("lock_tutorial_toast"), Toast.LENGTH_SHORT).show()
                 }
             }
         })
@@ -248,17 +248,17 @@ class LockActivity : ComponentActivity() {
             Box(modifier = Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
                 if (showBackButton) {
                     IconButton(onClick = { (context as? ComponentActivity)?.finish() }, modifier = Modifier.align(Alignment.TopStart).padding(8.dp)) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = textPrim)
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = LocaleManager.L("back"), tint = textPrim)
                     }
                 }
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("⏳", fontSize = 60.sp)
+                    Text(LocaleManager.L("lock_game_cooldown_title"), fontSize = 60.sp)
                     Spacer(modifier = Modifier.height(16.dp))
-                    Text("Fitur Game Sedang Cooldown", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, color = textPrim)
+                    Text(LocaleManager.L("lock_game_cooldown_heading"), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, color = textPrim)
                     Spacer(modifier = Modifier.height(8.dp))
-                    Text("Tunggu $remainingSeconds detik lagi atau gunakan fitur 'Baca Suara'.", style = MaterialTheme.typography.bodyMedium, color = textSub, textAlign = TextAlign.Center)
+                    Text(LocaleManager.L("lock_game_cooldown_desc").replace("{0}", remainingSeconds.toString()), style = MaterialTheme.typography.bodyMedium, color = textSub, textAlign = TextAlign.Center)
                     Spacer(modifier = Modifier.height(24.dp))
-                    Button(onClick = { (context as? ComponentActivity)?.recreate() }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1CB0F6))) { Text("Coba Lagi") }
+                    Button(onClick = { (context as? ComponentActivity)?.recreate() }, colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1CB0F6))) { Text(LocaleManager.L("lock_game_try_again")) }
                 }
             }
             return
@@ -317,7 +317,7 @@ class LockActivity : ComponentActivity() {
                                 }
                             } else {
                                 currentIsError = true
-                                Toast.makeText(context, "Susunan masih salah, coba lagi!", Toast.LENGTH_SHORT).show()
+Toast.makeText(context, LocaleManager.L("lock_puzzle_error"), Toast.LENGTH_SHORT).show()
                             }
                         }
                     }
@@ -341,7 +341,7 @@ class LockActivity : ComponentActivity() {
                             ) {
                                 Icon(
                                     Icons.AutoMirrored.Filled.ArrowBack,
-                                    contentDescription = "Back",
+                                    contentDescription = LocaleManager.L("back"),
                                     tint = textPrim,
                                     modifier = Modifier.size(20.dp)
                                 )
@@ -359,14 +359,14 @@ class LockActivity : ComponentActivity() {
                             trackColor = trackColor
                         )
                         Spacer(modifier = Modifier.width(12.dp))
-                        Text("🧩 ${targetIdx + 1}/${daftarAyatTarget.size}", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = textPrim)
+                        Text(LocaleManager.L("lock_puzzle_progress").replace("{0}", (targetIdx + 1).toString()).replace("{1}", daftarAyatTarget.size.toString()), fontSize = 16.sp, fontWeight = FontWeight.Bold, color = textPrim)
                     }
                     Spacer(modifier = Modifier.height(32.dp))
                     Surface(color = pillBg, shape = CircleShape) {
                         Text(text = "سورة ${currentTarget.first}", modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp), style = MaterialTheme.typography.titleMedium, color = pillText, fontWeight = FontWeight.Bold)
                     }
                     Spacer(modifier = Modifier.height(24.dp))
-                    Text("Susunlah potongan ayat ini:", style = MaterialTheme.typography.bodyLarge, color = textSub, textAlign = TextAlign.Center)
+                    Text(LocaleManager.L("lock_puzzle_instruction"), style = MaterialTheme.typography.bodyLarge, color = textSub, textAlign = TextAlign.Center)
                     Spacer(modifier = Modifier.height(30.dp))
                     Box(modifier = Modifier.fillMaxWidth().heightIn(min = 150.dp)
                         .border(2.dp, if (currentIsError) Color.Red else borderNorm, RoundedCornerShape(16.dp))
@@ -422,10 +422,10 @@ class LockActivity : ComponentActivity() {
                             }
                         } else {
                             currentIsError = true
-                            Toast.makeText(context, "Susunan masih salah, coba lagi!", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, LocaleManager.L("lock_puzzle_error"), Toast.LENGTH_SHORT).show()
                         }
                     }, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(16.dp), colors = ButtonDefaults.buttonColors(containerColor = if (isSuccess) Color(0xFF58CC02) else Color(0xFF1CB0F6)), enabled = currentSelectedWords.size == currentCorrectWords.size && !isSuccess) {
-                        Text(if (isSuccess) "✅ أحسنت!" else if (indexAyatSekarang < daftarAyatTarget.size - 1) "LANJUT" else "PERIKSA", fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
+                        Text(if (isSuccess) LocaleManager.L("lock_amazing_arabic") else if (indexAyatSekarang < daftarAyatTarget.size - 1) LocaleManager.L("lock_continue") else LocaleManager.L("lock_check"), fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
                     }
                 }
             }
@@ -434,9 +434,9 @@ class LockActivity : ComponentActivity() {
         AnimatedVisibility(visible = isSuccess, enter = fadeIn() + scaleIn(animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy))) {
             Box(modifier = Modifier.fillMaxSize().background(Color(0xFF58CC02).copy(alpha = 0.9f)), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("🌟", fontSize = 80.sp)
-                    Text("MANTAP!", color = Color.White, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Black)
-                    Text("+2 Menit Kredit Waktu", color = Color.White, style = MaterialTheme.typography.titleMedium)
+                    Text(LocaleManager.L("lock_success_emoji"), fontSize = 80.sp)
+                    Text(LocaleManager.L("lock_success_title"), color = Color.White, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Black)
+                    Text(LocaleManager.L("lock_success_reward"), color = Color.White, style = MaterialTheme.typography.titleMedium)
                 }
             }
         }
@@ -534,7 +534,7 @@ class LockActivity : ComponentActivity() {
         var namaSurah by remember { mutableStateOf("") }
         var ayatAktif by remember { mutableStateOf("") }
         var charStatusMap by remember { mutableStateOf(mapOf<Int, Map<Int, CharMatchStatus>>()) }
-        var teksHasilSuara by remember { mutableStateOf("Siap mendengarkan...") }
+        var teksHasilSuara by remember { mutableStateOf(LocaleManager.L("lock_voice_ready")) }
         var sedangMerekam by remember { mutableStateOf(false) }
         var percobaan by remember { mutableIntStateOf(0) }
         var sttUnavailable by remember { mutableStateOf(false) }
@@ -542,7 +542,7 @@ class LockActivity : ComponentActivity() {
         LaunchedEffect(Unit) {
             if (!SpeechRecognizer.isRecognitionAvailable(context)) {
                 sttUnavailable = true
-                teksHasilSuara = "Voice recognition tidak tersedia di perangkat ini"
+                teksHasilSuara = LocaleManager.L("lock_voice_unavailable")
                 return@LaunchedEffect
             }
             withContext(Dispatchers.IO) {
@@ -705,11 +705,11 @@ class LockActivity : ComponentActivity() {
                 if (mercyKick && !lulus) teksHasilSuara = "💚 Semangat! Terus berlatih ya."
                 percobaan = 0
                 if (indexAyatSekarang < daftarAyatTarget.size - 1) { indexAyatSekarang++ }
-                else { teksHasilSuara = "✅ Alhamdulillah! Semua ayat selesai."; handleGameSuccess(context, isGameMode = false, verseCount = daftarAyatTarget.size) }
+                else { teksHasilSuara = LocaleManager.L("lock_all_done"); handleGameSuccess(context, isGameMode = false, verseCount = daftarAyatTarget.size) }
             } else {
                 percobaan = newAttempts
-                teksHasilSuara = "❌ Belum pas ($matchedWordCount/$totalWords kata). Coba ulangi."
-                Toast.makeText(context, "Ulangi ayat ini sampai hijau", Toast.LENGTH_SHORT).show()
+                teksHasilSuara = LocaleManager.LF("lock_not_matched", matchedWordCount, totalWords)
+                Toast.makeText(context, LocaleManager.L("lock_repeat_verse"), Toast.LENGTH_SHORT).show()
             }
         }
 
@@ -743,10 +743,10 @@ class LockActivity : ComponentActivity() {
         }
 
         val listener = object : RecognitionListener {
-            override fun onReadyForSpeech(params: Bundle?) { if (confirmedTranscript.isEmpty()) teksHasilSuara = "Mendengarkan ayat ${indexAyatSekarang + 1}..." }
+            override fun onReadyForSpeech(params: Bundle?) { if (confirmedTranscript.isEmpty()) teksHasilSuara = LocaleManager.LF("lock_listening_verse", (indexAyatSekarang + 1).toString()) }
             override fun onError(error: Int) {
                 if (!isOnline(context)) {
-                    teksHasilSuara = "Koneksi terputus! Mengalihkan ke mode kuis..."
+                    teksHasilSuara = LocaleManager.L("lock_connection_lost")
                     sedangMerekam = false
                     onOfflineRedirect?.invoke()
                     return
@@ -808,7 +808,7 @@ class LockActivity : ComponentActivity() {
                         ) {
                             Icon(
                                 Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "Back",
+                                contentDescription = LocaleManager.L("back"),
                                 tint = if (dark) Color.White else Color.Black,
                                 modifier = Modifier.size(20.dp)
                             )
@@ -818,9 +818,9 @@ class LockActivity : ComponentActivity() {
                     Spacer(modifier = Modifier.weight(1f))
                     
                     Column(horizontalAlignment = Alignment.End) {
-                        Text("Sesi Mengaji", color = Color(0xFF2E7D32), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                        Text(LocaleManager.L("lock_session_title"), color = Color(0xFF2E7D32), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                         Text(
-                            if (daftarAyatTarget.size > 1) "Ayat ${indexAyatSekarang + 1} dari ${daftarAyatTarget.size}" else "Bacalah ayat ini",
+                            if (daftarAyatTarget.size > 1) LocaleManager.LF("lock_verse_of", (indexAyatSekarang + 1).toString(), daftarAyatTarget.size.toString()) else LocaleManager.L("lock_read_this_verse"),
                             style = MaterialTheme.typography.labelSmall,
                             color = textSub
                         )
@@ -839,7 +839,7 @@ class LockActivity : ComponentActivity() {
                         SideEffect { ayatAktif = currentVerse; charStatusMap = emptyMap(); confirmedTranscript = ""; percobaan = 0; partialDebounceJob?.cancel(); autoCheckJob?.cancel() }
                         Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = cardBg), shape = RoundedCornerShape(24.dp), elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)) {
                             Column(modifier = Modifier.padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                                Surface(color = pillBg, shape = CircleShape) { Text(text = "Surah $namaSurah", modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp), style = MaterialTheme.typography.labelLarge, color = pillText, fontWeight = FontWeight.Bold) }
+                                Surface(color = pillBg, shape = CircleShape) { Text(text = LocaleManager.LF("lock_surah_label", namaSurah), modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp), style = MaterialTheme.typography.labelLarge, color = pillText, fontWeight = FontWeight.Bold) }
                                 Spacer(modifier = Modifier.height(24.dp))
                                 val annotatedVerse = buildAnnotatedString {
                                     dbHelper.cleanVerseForQuiz(currentVerse).split(Regex("\\s+")).forEachIndexed { wordIdx, word ->
@@ -872,12 +872,12 @@ class LockActivity : ComponentActivity() {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(20.dp)) {
                     Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = transcriptBg), shape = RoundedCornerShape(16.dp)) { Text(text = teksHasilSuara, modifier = Modifier.padding(16.dp).fillMaxWidth().heightIn(min = 20.dp, max = 100.dp).verticalScroll(rememberScrollState()), textAlign = TextAlign.Center, style = MaterialTheme.typography.bodyMedium, color = transcriptText) }
                     if (sttUnavailable) {
-                        Text("⚠️ Voice recognition tidak didukung", color = Color(0xFFE53935), style = MaterialTheme.typography.bodyMedium)
-                        Text("Gunakan opsi game di bawah sebagai alternatif", color = textSecC(), style = MaterialTheme.typography.bodySmall)
+                        Text(LocaleManager.L("lock_voice_unsupported"), color = Color(0xFFE53935), style = MaterialTheme.typography.bodyMedium)
+                        Text(LocaleManager.L("lock_voice_alternative"), color = textSecC(), style = MaterialTheme.typography.bodySmall)
                     } else {
-                        Text(text = "Tidak dapat berbicara sekarang?", modifier = Modifier.clickable { onSwitchToGame() }, style = MaterialTheme.typography.bodyMedium.copy(color = Color(0xFF1CB0F6), fontWeight = FontWeight.Bold, textDecoration = TextDecoration.Underline))
+                        Text(text = LocaleManager.L("lock_cannot_speak"), modifier = Modifier.clickable { onSwitchToGame() }, style = MaterialTheme.typography.bodyMedium.copy(color = Color(0xFF1CB0F6), fontWeight = FontWeight.Bold, textDecoration = TextDecoration.Underline))
                     }
-                    Button(onClick = { if (!sedangMerekam) { if (sttUnavailable) { return@Button }; if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) { confirmedTranscript = ""; charStatusMap = emptyMap(); partialDebounceJob?.cancel(); autoCheckJob?.cancel(); sedangMerekam = true; speechRecognizer?.startListening(recIntent) } else { permissionLauncher.launch(Manifest.permission.RECORD_AUDIO) } } else { sedangMerekam = false; partialDebounceJob?.cancel(); autoCheckJob?.cancel(); speechRecognizer?.stopListening(); performCheck() } }, enabled = !sttUnavailable, colors = ButtonDefaults.buttonColors(containerColor = if (sedangMerekam) Color(0xFFFFA000) else Color(0xFF00C853), disabledContainerColor = Color.Gray), modifier = Modifier.fillMaxWidth().height(60.dp), shape = RoundedCornerShape(16.dp)) { Text(if (sttUnavailable) "❌ Tidak Tersedia" else if (sedangMerekam) "✅ Selesai & Cek" else "▶️ Mulai Ngaji", fontWeight = FontWeight.Bold, fontSize = 18.sp) }
+                    Button(onClick = { if (!sedangMerekam) { if (sttUnavailable) { return@Button }; if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) { confirmedTranscript = ""; charStatusMap = emptyMap(); partialDebounceJob?.cancel(); autoCheckJob?.cancel(); sedangMerekam = true; speechRecognizer?.startListening(recIntent) } else { permissionLauncher.launch(Manifest.permission.RECORD_AUDIO) } } else { sedangMerekam = false; partialDebounceJob?.cancel(); autoCheckJob?.cancel(); speechRecognizer?.stopListening(); performCheck() } }, enabled = !sttUnavailable, colors = ButtonDefaults.buttonColors(containerColor = if (sedangMerekam) Color(0xFFFFA000) else Color(0xFF00C853), disabledContainerColor = Color.Gray), modifier = Modifier.fillMaxWidth().height(60.dp), shape = RoundedCornerShape(16.dp)) { Text(if (sttUnavailable) LocaleManager.L("lock_stt_unavailable") else if (sedangMerekam) LocaleManager.L("lock_finish_check") else LocaleManager.L("lock_start_reading"), fontWeight = FontWeight.Bold, fontSize = 18.sp) }
                     Spacer(modifier = Modifier.height(10.dp))
                 }
             }

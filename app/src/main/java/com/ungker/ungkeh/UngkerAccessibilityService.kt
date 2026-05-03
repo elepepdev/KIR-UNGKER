@@ -147,12 +147,10 @@ class UngkerAccessibilityService : AccessibilityService() {
             val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
             @Suppress("DEPRECATION")
             val wakeLock = pm.newWakeLock(
-                PowerManager.FULL_WAKE_LOCK or
-                        PowerManager.ACQUIRE_CAUSES_WAKEUP or
-                        PowerManager.ON_AFTER_RELEASE,
+                PowerManager.PARTIAL_WAKE_LOCK,
                 "Ungker:AccessibilityLockWakeup"
             )
-            wakeLock.acquire(5_000L)
+            wakeLock.acquire(3_000L)
         } catch (_: Exception) {}
 
         val lockIntent = Intent(this, targetClass).apply {

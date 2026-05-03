@@ -6,6 +6,7 @@ import android.content.pm.ApplicationInfo
 import android.os.Build
 import androidx.core.content.edit
 import android.util.Log // Add this import
+import java.util.Calendar
 
 enum class FrictionCategory {
     SOCIAL_MEDIA,
@@ -21,6 +22,31 @@ class DeepFrictionManager(private val context: Context) {
         private const val COOLDOWN_DURATION_MS = 3 * 60 * 1000L // 3 minutes
         private const val PREF_LAST_SHOWN_KEY_PREFIX = "deep_friction_last_"
         private const val PREF_ACTIVE_APP_KEY = "deep_friction_active_app"
+        
+        // Cache for top apps to avoid heavy calculation on every tick
+        @Volatile private var cachedTopApps: Set<String>? = null
+        @Volatile private var lastTopAppsUpdateTime = 0L
+    }
+
+    // Identifies frequently used apps (Top 10 by usage time today)
+    private fun isFrequentlyUsed(packageName: String): Boolean {
+        val now = System.currentTimeMillis()
+        if (cachedTopApps == null || now - lastTopAppsUpdateTime > 5 * 60 * 1000L) {
+            val cal = Calendar.getInstance().apply {
+                set(Calendar.HOUR_OF_DAY, 0); set(Calendar.MINUTE, 0)
+                set(Calendar.SECOND, 0); set(Calendar.MILLISECOND, 0)
+            }
+            val usageMap = calcUsageFromEvents(context, cal.timeInMillis, now)
+            cachedTopApps = usageMap.entries
+                .filter { it.value > 60_000 } // Minimal 1 menit
+                .sortedByDescending { it.value }
+                .take(10)
+                .map { it.key }
+                .toSet()
+            lastTopAppsUpdateTime = now
+            Log.d(TAG, "isFrequentlyUsed: Updated Top Apps Cache: $cachedTopApps")
+        }
+        return cachedTopApps?.contains(packageName) ?: false
     }
 
     // Checks if the cooldown period has passed since the last friction was shown for a category.
@@ -34,16 +60,59 @@ class DeepFrictionManager(private val context: Context) {
 
     // Get category for a package
     fun getCategory(packageName: String): FrictionCategory? {
-        // PENTING: Aplikasi komunikasi dikecualikan dari Deep Friction
-        if (isCommunicationApp(packageName)) {
-            Log.d(TAG, "getCategory: Skipping $packageName because it's a communication app.")
+        val pkg = packageName.lowercase()
+
+        // KECUALIKAN aplikasi komunikasi & utilitas lain (TERMASUK Telegram, Google, Opera, dll)
+        if (isCommunicationApp(packageName) || isUtilityApp(packageName)) {
+            Log.d(TAG, "getCategory: Skipping $packageName because it's a communication/utility app.")
             return null
         }
+
+        // PENTING: Chrome hanya kena Deep Friction jika masuk top usage
+        // (Chrome sengaja dipisah karena sering dipakai doomscroll tapi secara kategori sistem adalah browser)
+        if (pkg.contains("chrome")) {
+            return if (isFrequentlyUsed(packageName)) FrictionCategory.SOCIAL_MEDIA else null
+        }
         
+        // Medsos, Game, Video hanya muncul jika "sering dipakai"
+        if (!isFrequentlyUsed(packageName)) {
+            return null
+        }
+
         if (isSocialMediaApp(packageName)) return FrictionCategory.SOCIAL_MEDIA
         if (isGameApp(packageName)) return FrictionCategory.GAME
         if (isVideoApp(packageName)) return FrictionCategory.VIDEO
         return null
+    }
+
+    /**
+     * Identifikasi aplikasi utilitas.
+     */
+    fun isUtilityApp(packageName: String): Boolean {
+        val pm = context.packageManager
+        val pkg = packageName.lowercase()
+        
+        // Chrome dikecualikan dari filter utilitas karena ditangani khusus di getCategory
+        if (pkg.contains("chrome")) return false
+
+        // Tambahkan Opera, Google (search), dan keyword browser lain
+        val utilityKeywords = listOf(
+            "browser", "calculator", "clock", "calendar", "camera", "gallery", 
+            "settings", "filemanager", "contact", "phone", "map", "weather",
+            "provider.telephony", "android.gms", "android.vending", "camera", "photos",
+            "opera", "google.android.googlequicksearchbox", "google.android.apps.searchlite",
+            "bing", "duckduckgo", "microsoft.emmx", "firefox", "puffin", "dolphin"
+        )
+        if (utilityKeywords.any { pkg.contains(it) }) return true
+
+        return try {
+            val info = pm.getApplicationInfo(packageName, 0)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                info.category == ApplicationInfo.CATEGORY_MAPS ||
+                info.category == ApplicationInfo.CATEGORY_PRODUCTIVITY ||
+                info.category == ApplicationInfo.CATEGORY_IMAGE
+            } else false
+        } catch (_: Exception) { false }
     }
 
     // Get the app that was successfully opened after Deep Friction (still in use)
@@ -65,6 +134,13 @@ class DeepFrictionManager(private val context: Context) {
         prefs.edit {remove(PREF_ACTIVE_APP_KEY)}
     }
 
+    // daftar lengkap medsos yang bisa cause doomscroll
+    private val knownSocialMediaPackages = listOf(
+        "instagram", "facebook", "twitter", "x.android", "threads",
+        "snapchat", "pinterest", "linkedin", "tiktok", "tiktoklite",
+        "whatsapp", "telegram", "signal", "discord"
+    )
+
     // Identifies social media applications.
     fun isSocialMediaApp(packageName: String): Boolean {
         val pm = context.packageManager
@@ -82,6 +158,30 @@ class DeepFrictionManager(private val context: Context) {
             (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
                     info.category == ApplicationInfo.CATEGORY_SOCIAL)
         } catch (_: Exception) { false }
+    }
+
+    // Get list of installed but unblocked social media apps
+    fun getUnblockedSocialMediaApps(): List<Pair<String, String>> {
+        val result = mutableListOf<Pair<String, String>>()
+        val blockedApps = prefs.getStringSet("blocked_apps", emptySet()) ?: emptySet()
+        
+        for (pkgName in knownSocialMediaPackages) {
+            try {
+                val packages = context.packageManager.getInstalledApplications(0)
+                val match = packages.find { it.packageName.lowercase().contains(pkgName) }
+                if (match != null && !blockedApps.contains(match.packageName)) {
+                    val appName = context.packageManager.getApplicationLabel(match).toString()
+                    result.add(Pair(match.packageName, appName))
+                }
+            } catch (_: Exception) { continue }
+        }
+        return result
+    }
+
+    // Check if app is blocked
+    fun isAppBlocked(packageName: String): Boolean {
+        val blockedApps = prefs.getStringSet("blocked_apps", emptySet()) ?: emptySet()
+        return blockedApps.contains(packageName)
     }
 
     // Identifies game applications.
@@ -132,6 +232,13 @@ class DeepFrictionManager(private val context: Context) {
     // Ditambahkan: Tidak muncul jika aplikasi yang diperiksa sedang aktif (sudah melewati Deep Friction)
     fun shouldShowFriction(packageName: String): Boolean {
         Log.d(TAG, "shouldShowFriction: Checking for packageName=$packageName")
+        
+        // Cek master switch dari pengaturan profil
+        if (!prefs.getBoolean("feature_deep_friction_enabled", true)) {
+            Log.d(TAG, "shouldShowFriction: Deep Friction is disabled in settings.")
+            return false
+        }
+
         // Jika aplikasi yang ingin dibuka sama dengan aplikasi yang saat ini aktif (sudah melewati Deep Friction),
         // maka jangan tampilkan friction lagi.
         if (packageName == getCurrentlyActiveApp()) {

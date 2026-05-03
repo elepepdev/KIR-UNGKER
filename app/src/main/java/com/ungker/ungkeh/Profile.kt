@@ -3,17 +3,23 @@ package com.ungker.ungkeh
 import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.pm.ApplicationInfo
-import android.os.Build
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -21,17 +27,22 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import androidx.core.content.edit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -127,15 +138,19 @@ data class BadgeInfo(
 
 val ALL_BADGES = listOf(
     BadgeInfo("badge_rising_sun",    "🌅", "Rising Sun",
-        "Membaca Al-Qur'an di mushaf UNGKER antara jam 04.00–06.59",
+        "badge_rising_sun_desc",
         Color(0xFFFF8F00)),
     BadgeInfo("badge_too_late",      "🌙", "Too Late! Go To Sleep.",
-        "Membaca Al-Qur'an di mushaf UNGKER setelah jam 22.00",
+        "badge_too_late_desc",
         Color(0xFF5C6BC0)),
     BadgeInfo("badge_no_brainwash",  "🛡️", "I'm Not Getting Brainwashed!",
-        "Penggunaan medsos & game di bawah batas yang ditentukan selama 3 hari berturut-turut",
+        "badge_no_brainwash_desc",
         Color(0xFF2E7D32)),
 )
+
+fun getBadgeDescription(key: String): String {
+    return LocaleManager.L(key)
+}
 
 // ─── ProfileScreen ───────────────────────────────────────────────────────────
 
@@ -156,6 +171,28 @@ fun ProfilScreen() {
     var editingName by remember { mutableStateOf(false) }
     var nameInput   by remember { mutableStateOf(userName) }
 
+    // ── Profile Picture ──────────────────────────────────────────────────
+    val initialProfilePic = remember { sp.getString("profile_picture", null) }
+    var profilePicUri by remember { mutableStateOf(initialProfilePic) }
+    
+    val imagePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        uri?.let {
+            try {
+                val inputStream = context.contentResolver.openInputStream(it)
+                inputStream?.let { stream ->
+                    val file = File(context.filesDir, "profile_picture.jpg")
+                    file.outputStream().use { out -> stream.copyTo(out) }
+                    val newPath = file.absolutePath
+                    profilePicUri = newPath
+                    sp.edit { putString("profile_picture", newPath) }
+                }
+                inputStream?.close()
+            } catch (e: Exception) { e.printStackTrace() }
+        }
+    }
+
     // ── Badge states ─────────────────────────────────────────────────────
     val badgeStates = remember { mutableStateMapOf<String, Boolean>() }
     LaunchedEffect(Unit) {
@@ -168,6 +205,230 @@ fun ProfilScreen() {
     val totalVerses  = remember { sp.getInt("total_verses", 0) }
     val streak       = remember { sp.getInt("no_brainwash_streak", 0) }
     val unlockedCount = badgeStates.values.count { it }
+
+    // ── Settings state ──────────────────────────────────────────────────
+    var showSettings by remember { mutableStateOf(false) }
+    var deepFrictionEnabled by remember { mutableStateOf(sp.getBoolean("feature_deep_friction_enabled", true)) }
+    var sholatLockEnabled by remember { mutableStateOf(sp.getBoolean("feature_sholat_lock_enabled", true)) }
+    var prayerNotifEnabled by remember { mutableStateOf(sp.getBoolean("feature_prayer_notification_enabled", true)) }
+    var prayerNotifMinutes by remember { mutableIntStateOf(sp.getInt("prayer_notification_minutes_before", 10)) }
+    
+    // ── User role untuk password protection ─────────────────────────
+    val userRole by remember { mutableStateOf(sp.getString("user_role", "personal")) }
+    val savedPassword by remember { mutableStateOf(sp.getString("parent_password", "")) }
+    var showPasswordDialog by remember { mutableStateOf(false) }
+    var pendingToggleDeepFriction by remember { mutableStateOf<Boolean?>(null) }
+    var passwordError by remember { mutableStateOf(false) }
+    
+    // Promise dialog state
+    var promiseDialogFeature by remember { mutableStateOf<String?>(null) }
+    var promiseInput by remember { mutableStateOf("") }
+    
+    // Password dialog for parental control
+    if (showPasswordDialog) {
+        PasswordDialog(
+            onDismiss = { showPasswordDialog = false; pendingToggleDeepFriction = null },
+            onConfirm = { inputPassword ->
+                if (inputPassword == savedPassword) {
+                    passwordError = false
+                    pendingToggleDeepFriction?.let { newValue ->
+                        deepFrictionEnabled = newValue
+                        sp.edit { putBoolean("feature_deep_friction_enabled", newValue) }
+                    }
+                    showPasswordDialog = false
+                    pendingToggleDeepFriction = null
+                } else {
+                    passwordError = true
+                }
+            },
+            isError = passwordError
+        )
+    }
+    
+    // Promise dialog for disabling features
+    if (promiseDialogFeature != null) {
+        PromiseConfirmDialog(
+            promiseInput = promiseInput,
+            onValueChange = { promiseInput = it },
+            correctPromise = LocaleManager.L("profile_promise_confirm"),
+            onDismiss = { promiseDialogFeature = null; promiseInput = "" },
+            onConfirm = {
+                when (promiseDialogFeature) {
+                    "deepFriction" -> {
+                        deepFrictionEnabled = false
+                        sp.edit { putBoolean("feature_deep_friction_enabled", false) }
+                    }
+                    "sholatLock" -> {
+                        sholatLockEnabled = false
+                        sp.edit { putBoolean("feature_sholat_lock_enabled", false) }
+                    }
+                    "prayerNotif" -> {
+                        prayerNotifEnabled = false
+                        sp.edit { putBoolean("feature_prayer_notification_enabled", false) }
+                    }
+                }
+                promiseDialogFeature = null; promiseInput = ""
+            }
+        )
+    }
+
+    if (showSettings) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(pageBg())
+                .padding(24.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.clickable { showSettings = false }
+            ) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = textPrimC())
+                Spacer(Modifier.width(12.dp))
+                Text(LocaleManager.L("settings_header"), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = textPrimC())
+            }
+            
+            Spacer(Modifier.height(32.dp))
+            
+            Text(LocaleManager.L("active_features"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = textSecC())
+// Toggle Deep Friction - Promise saat MATIKAN
+            SettingsToggleItem(
+                title = LocaleManager.L("deep_friction_title"),
+                desc = LocaleManager.L("deep_friction_desc"),
+                checked = deepFrictionEnabled,
+                onCheckedChange = { 
+                    // Promise hanya saat MATIKAN (true → false)
+                    if (!it && deepFrictionEnabled) {
+                        promiseDialogFeature = "deepFriction"
+                    } else {
+                        deepFrictionEnabled = it
+                        sp.edit { putBoolean("feature_deep_friction_enabled", it) }
+                    }
+                }
+            )
+            
+            Spacer(Modifier.height(16.dp))
+            
+// Toggle Sholat Lock - Promise saat MATIKAN
+            SettingsToggleItem(
+                title = LocaleManager.L("sholat_lock_title"),
+                desc = LocaleManager.L("sholat_lock_desc"),
+                checked = sholatLockEnabled,
+                onCheckedChange = {
+                    // Promise hanya saat MATIKAN (true → false)
+                    if (!it && sholatLockEnabled) {
+                        promiseDialogFeature = "sholatLock"
+                    } else {
+                        sholatLockEnabled = it
+                        sp.edit { putBoolean("feature_sholat_lock_enabled", it) }
+                    }
+                }
+            )
+            
+            Spacer(Modifier.height(16.dp))
+            
+// Toggle Prayer Notification - Promise saat MATIKAN
+            SettingsToggleItem(
+                title = LocaleManager.L("prayer_notif_title"),
+                desc = LocaleManager.L("prayer_notif_desc"),
+                checked = prayerNotifEnabled,
+                onCheckedChange = {
+                    // Promise hanya saat MATIKAN (true → false)
+                    if (!it && prayerNotifEnabled) {
+                        promiseDialogFeature = "prayerNotif"
+                    } else {
+                        prayerNotifEnabled = it
+                        sp.edit { putBoolean("feature_prayer_notification_enabled", it) }
+                    }
+                }
+            )
+            
+            if (prayerNotifEnabled) {
+                Spacer(Modifier.height(16.dp))
+                
+                // Minutes slider
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = cardBg()),
+                    shape = RoundedCornerShape(16.dp),
+                    border = BorderStroke(1.dp, borderC())
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text(
+                            LocaleManager.LF("settings_notif_before", prayerNotifMinutes),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = textPrimC(),
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(LocaleManager.L("input_5"), style = MaterialTheme.typography.labelSmall, color = textSecC())
+                            Slider(
+                                value = prayerNotifMinutes.toFloat(),
+                                onValueChange = { 
+                                    prayerNotifMinutes = it.toInt()
+                                    sp.edit { putInt("prayer_notification_minutes_before", it.toInt()) }
+                                },
+                                valueRange = 5f..20f,
+                                steps = 2,
+                                modifier = Modifier.weight(1f),
+                                colors = SliderDefaults.colors(
+                                    thumbColor = greenAccent(),
+                                    activeTrackColor = greenAccent()
+                                )
+                            )
+                            Text(LocaleManager.L("input_20"), style = MaterialTheme.typography.labelSmall, color = textSecC())
+                        }
+                        
+                        // Preview
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            LocaleManager.LF("settings_notif_example", prayerNotifMinutes),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = textSecC()
+                        )
+                    }
+                }
+            }
+            
+            Spacer(Modifier.height(24.dp))
+            
+            // Language Selector
+            Text(LocaleManager.L("settings_language"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = textSecC())
+            Spacer(Modifier.height(12.dp))
+            
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = cardBg()),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, borderC())
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    LanguageButton(
+                        label = "English",
+                        selected = LocaleManager.getLanguage() == "en",
+                        onClick = { LocaleManager.setLanguage("en") }
+                    )
+                    LanguageButton(
+                        label = "Bahasa Indonesia",
+                        selected = LocaleManager.getLanguage() == "id",
+                        onClick = { LocaleManager.setLanguage("id") }
+                    )
+                }
+            }
+        }
+        return
+    }
 
     LazyColumn(
         modifier            = Modifier.fillMaxSize(),
@@ -187,7 +448,7 @@ fun ProfilScreen() {
                     modifier            = Modifier.padding(28.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    // Avatar lingkaran dengan inisial
+                    // Avatar lingkaran dengan foto profil atau inisial
                     Box(
                         modifier         = Modifier
                             .size(88.dp)
@@ -196,18 +457,31 @@ fun ProfilScreen() {
                                     listOf(Color(0xFF2E7D32), Color(0xFF43A047))
                                 ),
                                 shape = CircleShape
-                            ),
+                            )
+                            .clickable { imagePickerLauncher.launch("image/*") },
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(
-                            text       = (userName.firstOrNull() ?: 'F').uppercaseChar().toString(),
-                            fontSize   = 38.sp,
-                            fontWeight = FontWeight.Black,
-                            color      = Color.White
-                        )
+                        if (profilePicUri != null && File(profilePicUri!!).exists()) {
+                            AsyncImage(
+                                model = ImageRequest.Builder(context)
+                                    .data(File(profilePicUri!!))
+                                    .crossfade(true)
+                                    .build(),
+                                contentDescription = LocaleManager.L("profile_photo"),
+                                modifier = Modifier
+                                    .size(88.dp)
+                                    .clip(CircleShape)
+                            )
+                        } else {
+                            Text(
+                                text       = (userName.firstOrNull() ?: 'F').uppercaseChar().toString(),
+                                fontSize   = 38.sp,
+                                fontWeight = FontWeight.Black,
+                                color      = Color.White
+                            )
+                        }
                     }
-                    Spacer(Modifier.height(16.dp))
-
+                    Spacer(Modifier.height(4.dp))
                     // Nama — mode tampil
                     if (!editingName) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -226,7 +500,7 @@ fun ProfilScreen() {
                                 modifier = Modifier.size(28.dp)
                             ) {
                                 Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
-                                    Text("✏️", fontSize = 14.sp)
+                                    Text(LocaleManager.L("edit_icon"), fontSize = 14.sp)
                                 }
                             }
                         }
@@ -252,7 +526,7 @@ fun ProfilScreen() {
                             value         = nameInput,
                             onValueChange = { if (it.length <= 24) nameInput = it },
                             singleLine    = true,
-                            placeholder   = { Text("Nama kamu...", color = textMutC()) },
+                            placeholder   = { Text(LocaleManager.L("input_name_placeholder"), color = textMutC()) },
                             textStyle     = androidx.compose.ui.text.TextStyle(
                                 textAlign  = TextAlign.Center,
                                 fontWeight = FontWeight.Bold,
@@ -276,7 +550,7 @@ fun ProfilScreen() {
                                 modifier = Modifier.weight(1f),
                                 border   = BorderStroke(1.dp, borderC()),
                                 shape    = RoundedCornerShape(12.dp)
-                            ) { Text("Batal", color = textSecC()) }
+                            ) { Text(LocaleManager.L("button_cancel"), color = textSecC()) }
                             Button(
                                 onClick = {
                                     val t = nameInput.trim()
@@ -289,7 +563,7 @@ fun ProfilScreen() {
                                 modifier = Modifier.weight(1f),
                                 colors   = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)),
                                 shape    = RoundedCornerShape(12.dp)
-                            ) { Text("Simpan") }
+                            ) { Text(LocaleManager.L("button_save")) }
                         }
                     }
 
@@ -302,12 +576,44 @@ fun ProfilScreen() {
                         modifier              = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceEvenly
                     ) {
-                        ProfilStat("$totalVerses", "Ayat", Color(0xFF2E7D32))
+                        ProfilStat("$totalVerses", LocaleManager.L("profile_stat_ayat"), Color(0xFF2E7D32))
                         ProfilStatDivider()
-                        ProfilStat("$unlockedCount/${ALL_BADGES.size}", "Badge", Color(0xFFFF8F00))
+                        ProfilStat("$unlockedCount/${ALL_BADGES.size}", LocaleManager.L("profile_stat_badge"), Color(0xFFFF8F00))
                         ProfilStatDivider()
-                        ProfilStat("$streak", "Streak", Color(0xFF1565C0))
+                        ProfilStat("$streak", LocaleManager.L("profile_stat_streak"), Color(0xFF1565C0))
                     }
+                }
+            }
+        }
+
+        // ── Kartu Pengaturan ──────────────────────────────────────────────
+        item {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { showSettings = true },
+                colors = CardDefaults.cardColors(containerColor = cardBg()),
+                shape = RoundedCornerShape(20.dp),
+                elevation = CardDefaults.cardElevation(1.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(20.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(44.dp)
+                            .background(Color(0xFF64748B).copy(alpha = 0.12f), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(Icons.Default.Settings, null, tint = Color(0xFF64748B))
+                    }
+                    Spacer(Modifier.width(16.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(LocaleManager.L("feature_settings"), fontWeight = FontWeight.Bold, color = textPrimC())
+                        Text(LocaleManager.L("feature_settings_desc"), style = MaterialTheme.typography.bodySmall, color = textSecC())
+                    }
+                    Icon(Icons.Default.ChevronRight, null, tint = textMutC())
                 }
             }
         }
@@ -318,10 +624,10 @@ fun ProfilScreen() {
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("🏆", fontSize = 20.sp)
+                Text(LocaleManager.L("badge_header"), fontSize = 20.sp)
                 Spacer(Modifier.width(8.dp))
                 Text(
-                    "Lemari Badge",
+                    LocaleManager.L("badge_cabinet"),
                     style      = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color      = textPrimC()
@@ -441,7 +747,7 @@ private fun BadgeCard(badge: BadgeInfo, unlocked: Boolean, dark: Boolean, index:
                     }
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        badge.desc,
+                        getBadgeDescription(badge.desc),
                         style = MaterialTheme.typography.bodySmall,
                         color = textMutC(),
                         lineHeight = 18.sp
@@ -450,4 +756,188 @@ private fun BadgeCard(badge: BadgeInfo, unlocked: Boolean, dark: Boolean, index:
             }
         }
     }
+}
+
+@Composable
+fun SettingsToggleItem(
+    title: String,
+    desc: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    requirePassword: Boolean = false,
+    onToggleClick: () -> Unit = {}
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { 
+                if (requirePassword) {
+                    onToggleClick()
+                } else {
+                    onCheckedChange(!checked)
+                }
+            },
+        colors = CardDefaults.cardColors(containerColor = cardBg()),
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, borderC())
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(title, fontWeight = FontWeight.Bold, color = textPrimC())
+                Text(desc, style = MaterialTheme.typography.bodySmall, color = textSecC())
+            }
+            Switch(
+                checked = checked,
+                onCheckedChange = { 
+                    if (requirePassword) {
+                        onToggleClick()
+                    } else {
+                        onCheckedChange(!checked)
+                    }
+                },
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = Color.White,
+                    checkedTrackColor = Color(0xFF2E7D32)
+                )
+            )
+        }
+    }
+}
+
+@Composable
+fun LanguageButton(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(12.dp),
+        color = if (selected) greenAccent() else cardBg(),
+        border = if (selected) null else BorderStroke(1.dp, borderC())
+    ) {
+        Text(
+            text = label,
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+            color = if (selected) Color.White else textPrimC()
+        )
+    }
+}
+
+@Composable
+fun PasswordDialog(
+    onDismiss: () -> Unit,
+    onConfirm: (String) -> Unit,
+    isError: Boolean = false
+) {
+    var passwordInput by remember { mutableStateOf("") }
+    val focusRequester = remember { FocusRequester() }
+    
+    LaunchedEffect(Unit) {
+        delay(300)
+        focusRequester.requestFocus()
+    }
+    
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(LocaleManager.L("parent_password_title"), fontWeight = FontWeight.Bold) },
+        text = {
+            Column {
+                Text(LocaleManager.L("parent_password_desc"), color = textSecC())
+                Spacer(Modifier.height(16.dp))
+                OutlinedTextField(
+                    value = passwordInput,
+                    onValueChange = { passwordInput = it },
+                    modifier = Modifier.fillMaxWidth().focusRequester(focusRequester),
+                    placeholder = { Text(LocaleManager.L("password_placeholder")) },
+                    singleLine = true,
+                    isError = isError,
+                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = Color(0xFF2E7D32),
+                        unfocusedBorderColor = if (isError) Color.Red else borderC()
+                    )
+                )
+                if (isError) {
+                    Text(LocaleManager.L("password_wrong"), color = Color.Red, style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 4.dp))
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = { onConfirm(passwordInput) },
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32))
+            ) {
+                Text(LocaleManager.L("button_confirm"))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(LocaleManager.L("button_cancel"))
+            }
+        }
+    )
+}
+
+@Composable
+fun PromiseConfirmDialog(
+    promiseInput: String,
+    onValueChange: (String) -> Unit,
+    correctPromise: String,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    val isEnabled = promiseInput.trim().lowercase() == correctPromise.lowercase()
+    
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = cardBg(),
+        shape = RoundedCornerShape(28.dp),
+        title = { Text(LocaleManager.L("promise_title_confirm"), color = greenAccent(), fontWeight = FontWeight.Black, letterSpacing = 2.sp, fontSize = 14.sp) },
+        text = {
+            Column {
+                Text(LocaleManager.L("promise_desc_type"), color = textSecC(), fontSize = 12.sp)
+                Spacer(Modifier.height(8.dp))
+                Text("\"$correctPromise\"", color = greenAccent(), fontSize = 13.sp, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic, lineHeight = 20.sp)
+                Spacer(Modifier.height(16.dp))
+                OutlinedTextField(
+                    value = promiseInput,
+                    onValueChange = onValueChange,
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text(LocaleManager.L("promise_placeholder"), color = textMutC().copy(0.3f), fontSize = 13.sp) },
+                    shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = greenAccent(),
+                        unfocusedBorderColor = borderC().copy(0.1f),
+                        focusedTextColor = textPrimC(),
+                        unfocusedTextColor = textPrimC()
+                    )
+                )
+            }
+        },
+        confirmButton = {
+            Button(
+                enabled = isEnabled,
+                onClick = onConfirm,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = greenAccent(), 
+                    disabledContainerColor = textMutC().copy(0.05f)
+                ),
+                shape = RoundedCornerShape(14.dp)
+            ) { 
+                Text(
+                    "KONFIRMASI", 
+                    color = if (isEnabled) cardBg() else textMutC(), 
+                    fontWeight = FontWeight.Bold
+                ) 
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(LocaleManager.L("button_batal"), color = textMutC(), fontWeight = FontWeight.Bold) }
+        }
+    )
 }

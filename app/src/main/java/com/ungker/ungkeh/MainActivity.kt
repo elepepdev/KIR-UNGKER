@@ -37,11 +37,23 @@ import kotlinx.coroutines.withContext
 import androidx.core.view.WindowCompat
 
 class MainActivity : ComponentActivity() {
+    private var initialTabFromIntent = 0
+    private var highlightPackageFromIntent: String? = null
 
     @RequiresApi(Build.VERSION_CODES.O)
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        
+        // Initialize LocaleManager
+        LocaleManager.init(this)
+        
         WindowCompat.setDecorFitsSystemWindows(window, false)
+
+        // Read navigation params from intent BEFORE splash
+        intent?.let {
+            initialTabFromIntent = it.getIntExtra("initial_tab", 0)
+            highlightPackageFromIntent = it.getStringExtra("highlight_package")
+        }
 
         // Check onboarding
         val sp0 = getSharedPreferences("UNGKER_PREF", Context.MODE_PRIVATE)
@@ -57,6 +69,22 @@ class MainActivity : ComponentActivity() {
         val serviceIntent = Intent(this, UngkerService::class.java)
         startForegroundService(serviceIntent)
 
+        if (sp0.getBoolean("sholat_gps_mode", false)) {
+            lifecycleScope.launch(Dispatchers.IO) {
+                getGpsLocation(
+                    context = this@MainActivity,
+                    onSuccess = { lat, lng, tz, label ->
+                        sp0.edit {
+                            putFloat("sholat_lat", lat.toFloat())
+                            putFloat("sholat_lng", lng.toFloat())
+                            putInt("sholat_tz", tz)
+                            putString("sholat_city_name", label)
+                        }
+                    },
+                    onFail = {} // Silent fail, jadwal lama tetap dipakai
+                )
+            }
+        }
         // Izin dasar tetap diperlukan di sini
         if (!android.provider.Settings.canDrawOverlays(this)) {
             startActivity(Intent(
@@ -79,39 +107,50 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
-            val sharedPref = remember { getSharedPreferences("UNGKER_PREF", Context.MODE_PRIVATE) }
-            var isDarkMode by remember { mutableStateOf(sharedPref.getBoolean("dark_mode", false)) }
+            // Splash hanya muncul jika bukan navigasi khusus dari notifikasi
+            var showSplash by remember { mutableStateOf(initialTabFromIntent == 0) }
 
-            CompositionLocalProvider(LocalIsDarkMode provides isDarkMode) {
-                MaterialTheme(
-                    colorScheme = if (isDarkMode) darkColorScheme(
-                        background = Color(0xFF12100E),
-                        surface = Color(0xFF1C1917),
-                        onSurface = Color(0xFFFEF3C7),
-                        onBackground = Color(0xFFFEF3C7),
-                        primary = Color(0xFF52B788),
-                        onPrimary = Color.Black
-                    ) else lightColorScheme(
-                        background = Color(0xFFFFF7ED),
-                        surface = Color(0xFFFFFAF0),
-                        onSurface = Color(0xFF451A03),
-                        onBackground = Color(0xFF451A03),
-                        primary = Color(0xFF2D6A4F),
-                        onPrimary = Color.White
-                    )
-                ) {
-                    Surface(
-                        modifier = Modifier.fillMaxSize(),
-                        color = pageBg()
-                    ) {
-                        LayarUtama(
-                            isDarkMode = isDarkMode,
-                            onToggleDarkMode = {
-                                val newVal = !isDarkMode
-                                isDarkMode = newVal
-                                sharedPref.edit {putBoolean("dark_mode", newVal)}
-                            }
+            if (showSplash) {
+                SplashScreenComposable(
+                    onSplashFinished = { showSplash = false }
+                )
+            } else {
+                val sharedPref = remember { getSharedPreferences("UNGKER_PREF", Context.MODE_PRIVATE) }
+                var isDarkMode by remember { mutableStateOf(sharedPref.getBoolean("dark_mode", false)) }
+
+                CompositionLocalProvider(LocalIsDarkMode provides isDarkMode) {
+                    MaterialTheme(
+                        colorScheme = if (isDarkMode) darkColorScheme(
+                            background = Color(0xFF12100E),
+                            surface = Color(0xFF1C1917),
+                            onSurface = Color(0xFFFEF3C7),
+                            onBackground = Color(0xFFFEF3C7),
+                            primary = Color(0xFF52B788),
+                            onPrimary = Color.Black
+                        ) else lightColorScheme(
+                            background = Color(0xFFFFF7ED),
+                            surface = Color(0xFFFFFAF0),
+                            onSurface = Color(0xFF451A03),
+                            onBackground = Color(0xFF451A03),
+                            primary = Color(0xFF2D6A4F),
+                            onPrimary = Color.White
                         )
+                    ) {
+                        Surface(
+                            modifier = Modifier.fillMaxSize(),
+                            color = pageBg()
+                        ) {
+                            LayarUtama(
+                                isDarkMode = isDarkMode,
+                                onToggleDarkMode = {
+                                    val newVal = !isDarkMode
+                                    isDarkMode = newVal
+                                    sharedPref.edit {putBoolean("dark_mode", newVal)}
+                                },
+                                initialTab = initialTabFromIntent,
+                                highlightPackage = highlightPackageFromIntent
+                            )
+                        }
                     }
                 }
             }
@@ -131,6 +170,8 @@ class MainActivity : ComponentActivity() {
 fun LayarUtama(
     isDarkMode: Boolean = false,
     onToggleDarkMode: () -> Unit = {},
+    initialTab: Int = 0,
+    highlightPackage: String? = null,
     viewModel: com.ungker.ungkeh.ui.MainViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
 ) {
     val context = LocalContext.current
@@ -143,15 +184,25 @@ fun LayarUtama(
     // Cache statis untuk data yang tidak reaktif
     var blockedCount by remember { mutableIntStateOf(0) }
     var hideNavBar   by remember { mutableStateOf(false) }
-    var selectedTab  by remember { mutableIntStateOf(0) }
+    var selectedTab  by remember { mutableIntStateOf(initialTab) }
 
     val maxCreditLimit = 3_600_000L
     val READ_COOLDOWN_MS = 5L * 60 * 1000L
     val READ_CREDIT_MS   = 5L * 60 * 1000L
 
+    // Track highlight package across tab changes
+    var pendingHighlight by remember { mutableStateOf(highlightPackage) }
+
     LaunchedEffect(Unit) {
         val sp = context.getSharedPreferences("UNGKER_PREF", Context.MODE_PRIVATE)
         blockedCount = sp.getStringSet("blocked_apps", emptySet())?.size ?: 0
+    }
+
+    // Clear highlight after first use
+    LaunchedEffect(highlightPackage) {
+        if (highlightPackage != null) {
+            pendingHighlight = highlightPackage
+        }
     }
 
     Scaffold(
@@ -163,11 +214,11 @@ fun LayarUtama(
                     tonalElevation = 8.dp
                 ) {
                     val tabs = listOf(
-                        Triple("Beranda", Icons.Default.Home, 0),
-                        Triple("Aplikasi", Icons.Default.Apps, 1),
-                        Triple("Quran", Icons.AutoMirrored.Filled.MenuBook, 2),
-                        Triple("Statistik", Icons.Default.BarChart, 3),
-                        Triple("Profil", Icons.Default.Person, 4)
+                        Triple(LocaleManager.L("tab_home"), Icons.Default.Home, 0),
+                        Triple(LocaleManager.L("tab_apps"), Icons.Default.Apps, 1),
+                        Triple(LocaleManager.L("tab_quran"), Icons.AutoMirrored.Filled.MenuBook, 2),
+                        Triple(LocaleManager.L("tab_stats"), Icons.Default.BarChart, 3),
+                        Triple(LocaleManager.L("tab_profile"), Icons.Default.Person, 4)
                     )
 
                     tabs.forEach { (label, icon, index) ->
@@ -236,11 +287,11 @@ fun LayarUtama(
                             val now     = System.currentTimeMillis()
                             when {
                                 remainingTimeMillis >= maxCreditLimit ->
-                                    Toast.makeText(context, "Waktu sudah maksimal (1 Jam)!", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, LocaleManager.L("home_max_reached"), Toast.LENGTH_SHORT).show()
                                 now - lastRead < READ_COOLDOWN_MS -> {
                                     val sisaDetik = ((READ_COOLDOWN_MS - (now - lastRead)) / 1000).toInt()
                                     val mnt = sisaDetik / 60; val det = sisaDetik % 60
-                                    Toast.makeText(context, "Cooldown aktif! Tunggu ${mnt}m ${det}d lagi", Toast.LENGTH_LONG).show()
+                                    Toast.makeText(context, LocaleManager.LF("home_cooldown", mnt, det), Toast.LENGTH_LONG).show()
                                 }
                                 else -> {
                                     val intentLock = Intent(context, LockActivity::class.java).apply {
@@ -253,7 +304,7 @@ fun LayarUtama(
                             }
                         }
                     )
-                    1 -> DaftarAplikasiScreen(isDarkMode = dark)
+                    1 -> DaftarAplikasiScreen(isDarkMode = dark, highlightPackage = pendingHighlight)
                     2 -> QuranScreen(onHideNavBar = { hideNavBar = it })
                     3 -> StatistikScreen()
                     4 -> ProfilScreen()
@@ -261,7 +312,7 @@ fun LayarUtama(
                         modifier            = Modifier.fillMaxSize(),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center
-                    ) { Text("Halaman Belum Tersedia", color = textPrimC()) }
+                    ) { Text(LocaleManager.L("home_page_unavailable"), color = textPrimC()) }
                 }
             }
         }

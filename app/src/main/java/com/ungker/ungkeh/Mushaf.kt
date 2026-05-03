@@ -83,8 +83,8 @@ fun QuranHubScreen(onMushaf: () -> Unit, onSambungAyat: () -> Unit) {
 
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Spacer(modifier = Modifier.height(32.dp))
-        Text("Al-Qur'an", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, color = textPrimC())
-        Text("Pilih aktivitas yang ingin kamu lakukan", style = MaterialTheme.typography.bodyMedium, color = textSecC())
+        Text(LocaleManager.L("mushaf_title"), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, color = textPrimC())
+        Text(LocaleManager.L("mushaf_subtitle"), style = MaterialTheme.typography.bodyMedium, color = textSecC())
         Spacer(modifier = Modifier.height(20.dp))
 
         Card(
@@ -102,8 +102,8 @@ fun QuranHubScreen(onMushaf: () -> Unit, onSambungAyat: () -> Unit) {
                 }
                 Spacer(Modifier.width(16.dp))
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(if (readingStreak > 0) "Streak $readingStreak Hari!" else "Mulai Streak-mu", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = if (readingStreak > 0) Color(0xFFE65100) else textPrimC())
-                    Text(if (readingStreak > 0) "Jaga terus, jangan putus ya! 💪" else "Baca mushaf hari ini untuk memulai", style = MaterialTheme.typography.bodySmall, color = textSecC())
+                    Text(if (readingStreak > 0) LocaleManager.LF("home_streak_days", readingStreak) else LocaleManager.L("quran_streak_start"), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = if (readingStreak > 0) Color(0xFFE65100) else textPrimC())
+                    Text(if (readingStreak > 0) LocaleManager.L("quran_streak_desc") else LocaleManager.L("quran_streak_start_desc"), style = MaterialTheme.typography.bodySmall, color = textSecC())
                 }
             }
         }
@@ -115,8 +115,8 @@ fun QuranHubScreen(onMushaf: () -> Unit, onSambungAyat: () -> Unit) {
                 Box(modifier = Modifier.size(64.dp).background(greenBgC(), RoundedCornerShape(16.dp)), contentAlignment = Alignment.Center) { Text("📖", fontSize = 32.sp) }
                 Spacer(modifier = Modifier.width(20.dp))
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("Mushaf", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = textPrimC())
-                    Text("Baca Al-Qur'an per halaman", style = MaterialTheme.typography.bodySmall, color = textSecC())
+                    Text(LocaleManager.L("mushaf_read"), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = textPrimC())
+                    Text(LocaleManager.L("mushaf_read_desc"), style = MaterialTheme.typography.bodySmall, color = textSecC())
                 }
                 Text("›", fontSize = 28.sp, color = greenAccent(), fontWeight = FontWeight.Bold)
             }
@@ -129,8 +129,8 @@ fun QuranHubScreen(onMushaf: () -> Unit, onSambungAyat: () -> Unit) {
                 Box(modifier = Modifier.size(64.dp).background(Color(0xFFFFF3E0), RoundedCornerShape(16.dp)), contentAlignment = Alignment.Center) { Text("🧩", fontSize = 32.sp) }
                 Spacer(modifier = Modifier.width(20.dp))
                 Column(modifier = Modifier.weight(1f)) {
-                    Text("Sambung Ayat", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = textPrimC())
-                    Text("Susun potongan ayat pilihanmu", style = MaterialTheme.typography.bodySmall, color = textSecC())
+                    Text(LocaleManager.L("mushaf_puzzle"), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = textPrimC())
+                    Text(LocaleManager.L("mushaf_puzzle_desc"), style = MaterialTheme.typography.bodySmall, color = textSecC())
                 }
                 Text("›", fontSize = 28.sp, color = Color(0xFFE65100), fontWeight = FontWeight.Bold)
             }
@@ -181,22 +181,22 @@ fun MushafPagePicker(onBack: () -> Unit, onOpenPage: (Int) -> Unit) {
     Column(modifier = Modifier.fillMaxSize().background(pageBg()).navigationBarsPadding()) {
         Row(modifier = Modifier.fillMaxWidth().padding(start = 4.dp, top = 12.dp, end = 16.dp), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = textPrimC()) }
-            Text("Mushaf", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = textPrimC(), modifier = Modifier.weight(1f))
+            Text(LocaleManager.L("mushaf_page_title"), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = textPrimC(), modifier = Modifier.weight(1f))
             
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (lastPage != -1) {
                     Surface(onClick = { onOpenPage(lastPage) }, shape = RoundedCornerShape(10.dp), color = Color(0xFFFFF3E0)) {
-                        Text("🕒 Lanjut Hal $lastPage", modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp), style = MaterialTheme.typography.labelMedium, color = Color(0xFFE65100), fontWeight = FontWeight.Bold)
+                        Text(LocaleManager.LF("mushaf_continue_page_btn", lastPage), modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp), style = MaterialTheme.typography.labelMedium, color = Color(0xFFE65100), fontWeight = FontWeight.Bold)
                     }
                 }
                 if (bookmarks.isNotEmpty()) {
                     Surface(onClick = { onOpenPage(bookmarks.max()) }, shape = RoundedCornerShape(10.dp), color = greenBgC()) {
-                        Text("🔖 Bookmark", modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp), style = MaterialTheme.typography.labelMedium, color = greenAccent(), fontWeight = FontWeight.Bold)
+                        Text(LocaleManager.L("mushaf_bookmark"), modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp), style = MaterialTheme.typography.labelMedium, color = greenAccent(), fontWeight = FontWeight.Bold)
                     }
                 }
             }
         }
-        OutlinedTextField(value = searchQuery, onValueChange = { searchQuery = it.take(10) }, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), placeholder = { Text("Cari halaman (1–604)", color = textMutC()) }, leadingIcon = { Icon(Icons.Default.Search, null, tint = textSecC()) }, singleLine = true, shape = RoundedCornerShape(14.dp))
+        OutlinedTextField(value = searchQuery, onValueChange = { searchQuery = it.take(10) }, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), placeholder = { Text(LocaleManager.L("mushaf_search_placeholder"), color = textMutC()) }, leadingIcon = { Icon(Icons.Default.Search, null, tint = textSecC()) }, singleLine = true, shape = RoundedCornerShape(14.dp))
         LazyVerticalGrid(columns = GridCells.Fixed(4), modifier = Modifier.weight(1f), contentPadding = PaddingValues(16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             var lastJuz = -1
             filteredPages.forEach { pageNum ->
@@ -219,7 +219,7 @@ fun MushafPagePicker(onBack: () -> Unit, onOpenPage: (Int) -> Unit) {
                         Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 if (isBookmarked) Text("🔖", fontSize = 10.sp)
-                                Text("Hal", fontSize = 10.sp, color = if (isBookmarked) greenAccent() else textSecC())
+                                Text(LocaleManager.L("mushaf_page_label"), fontSize = 10.sp, color = if (isBookmarked) greenAccent() else textSecC())
                                 Text(pageNum.toString(), fontWeight = FontWeight.Bold, color = if (isBookmarked) greenAccent() else textPrimC())
                             }
                         }
@@ -236,6 +236,7 @@ fun MushafPageReader(page: Int, dbHelper: QuranDatabaseHelper, onBack: () -> Uni
     val sp = remember { context.getSharedPreferences("UNGKER_PREF", Context.MODE_PRIVATE) }
     var pageVerses by remember { mutableStateOf<List<Verse>>(emptyList()) }
     var isPageLoading by remember { mutableStateOf(true) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
     val scrollState = rememberLazyListState()
 
     var secondsRemaining by remember(page) { mutableIntStateOf(45) }
@@ -252,12 +253,30 @@ fun MushafPageReader(page: Int, dbHelper: QuranDatabaseHelper, onBack: () -> Uni
 
     LaunchedEffect(page) {
         isPageLoading = true
+        errorMessage = null
         // Auto bookmark current page
         sp.edit { putInt("mushaf_last_page", page) }
         
         withContext(Dispatchers.IO) {
-            val list = dbHelper.getVersesByPage(page)
-            withContext(Dispatchers.Main) { pageVerses = list; isPageLoading = false }
+            try {
+                val list = dbHelper.getVersesByPage(page)
+                if (list.isEmpty()) {
+                    withContext(Dispatchers.Main) { 
+                        errorMessage = "Halaman tidak ditemukan atau database kosong."
+                        isPageLoading = false 
+                    }
+                } else {
+                    withContext(Dispatchers.Main) { 
+                        pageVerses = list
+                        isPageLoading = false 
+                    }
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    errorMessage = "Gagal memuat Al-Qur'an: ${e.message}"
+                    isPageLoading = false
+                }
+            }
         }
 
         secondsRemaining = 45
@@ -279,7 +298,10 @@ fun MushafPageReader(page: Int, dbHelper: QuranDatabaseHelper, onBack: () -> Uni
         topBar = {
             Row(modifier = Modifier.fillMaxWidth().background(cardBg()).padding(horizontal = 4.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = { onBack() }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = textPrimC()) }
-                Column(modifier = Modifier.weight(1f)) { Text("Halaman $page", fontWeight = FontWeight.Bold, color = textPrimC()); Text("Juz ${getJuzOfPage(page)}", style = MaterialTheme.typography.bodySmall, color = greenAccent()) }
+                Column(modifier = Modifier.weight(1f)) { 
+                    Text(LocaleManager.LF("mushaf_page_number", page), fontWeight = FontWeight.Bold, color = textPrimC())
+                    Text(LocaleManager.LF("mushaf_juz_of", getJuzOfPage(page)), style = MaterialTheme.typography.bodySmall, color = greenAccent())
+                }
                 IconButton(onClick = { if (page > 1) onNav(page - 1) }, enabled = page > 1) { Text("◀", color = if (page > 1) greenAccent() else textMutC()) }
                 IconButton(onClick = { if (page < 604) onNav(page + 1) }, enabled = page < 604) { Text("▶", color = if (page < 604) greenAccent() else textMutC()) }
                 IconButton(onClick = { toggleBookmark() }) { Icon(Icons.Filled.Star, null, tint = if (isBookmarked) greenAccent() else textSecC().copy(0.35f)) }
@@ -305,7 +327,7 @@ fun MushafPageReader(page: Int, dbHelper: QuranDatabaseHelper, onBack: () -> Uni
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text("Progres Juz $currentJuz", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = textPrimC())
+                            Text(LocaleManager.LF("mushaf_progress_juz", currentJuz), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = textPrimC())
                             Spacer(Modifier.weight(1f))
                             Text("${(juzProgress * 100).toInt()}%", style = MaterialTheme.typography.labelMedium, color = greenAccent(), fontWeight = FontWeight.Bold)
                         }
@@ -317,7 +339,7 @@ fun MushafPageReader(page: Int, dbHelper: QuranDatabaseHelper, onBack: () -> Uni
                             ))
                         }
                         Spacer(Modifier.height(4.dp))
-                        Text("Halaman $page dari $juzEnd", style = MaterialTheme.typography.labelSmall, color = textSecC())
+                        Text(LocaleManager.LF("mushaf_page_of", page, juzEnd), style = MaterialTheme.typography.labelSmall, color = textSecC())
                     }
                 }
             }
@@ -351,10 +373,10 @@ fun MushafPageReader(page: Int, dbHelper: QuranDatabaseHelper, onBack: () -> Uni
                 icon = { Icon(if (hasAwardedCredit) Icons.Default.Check else Icons.Default.Star, null) },
                 text = {
                     Text(
-                        if (hasAwardedCredit) "Selesai"
-                        else if (!isNearBottom) "Scroll ke Bawah"
-                        else if (secondsRemaining > 0) "Membaca ($secondsRemaining)"
-                        else "Read",
+                        if (hasAwardedCredit) LocaleManager.L("mushaf_finish")
+                        else if (!isNearBottom) LocaleManager.L("mushaf_scroll_down")
+                        else if (secondsRemaining > 0) "${LocaleManager.L("mushaf_reading")} ($secondsRemaining)"
+                        else LocaleManager.L("mushaf_read"),
                         fontWeight = FontWeight.Bold
                     )
                 },
@@ -362,17 +384,42 @@ fun MushafPageReader(page: Int, dbHelper: QuranDatabaseHelper, onBack: () -> Uni
             )
         }
     ) { innerPadding ->
-        if (isPageLoading) Box(Modifier.fillMaxSize().padding(innerPadding), Alignment.Center) { CircularProgressIndicator(color = greenAccent()) }
-        else LazyColumn(
-            state = scrollState,
-            modifier = Modifier.fillMaxSize().padding(innerPadding),
-            contentPadding = PaddingValues(16.dp),
-            verticalArrangement = Arrangement.spacedBy(24.dp)
-        ) {
-            itemsIndexed(pageVerses) { _, verse ->
-                Text(text = verse.text, style = MaterialTheme.typography.headlineMedium.copy(lineHeight = 50.sp, textAlign = TextAlign.Right, color = textPrimC()), modifier = Modifier.fillMaxWidth())
-                Surface(color = greenBgC(), shape = CircleShape, modifier = Modifier.padding(top = 8.dp)) { Text("${verse.surahName} : ${verse.ayahId}", modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp), style = MaterialTheme.typography.labelSmall, color = greenAccent()) }
-                HorizontalDivider(modifier = Modifier.padding(top = 16.dp), color = dividerC())
+        if (isPageLoading) {
+            Box(Modifier.fillMaxSize().padding(innerPadding), Alignment.Center) { 
+                CircularProgressIndicator(color = greenAccent()) 
+            }
+        } else if (errorMessage != null) {
+            Box(Modifier.fillMaxSize().padding(innerPadding).padding(24.dp), Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("⚠️", fontSize = 48.sp)
+                    Spacer(Modifier.height(16.dp))
+                    Text(
+                        errorMessage!!,
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = Color.Red,
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(Modifier.height(24.dp))
+                    Button(
+                        onClick = { onBack() },
+                        colors = ButtonDefaults.buttonColors(containerColor = greenAccent())
+                    ) {
+                        Text(LocaleManager.L("mushaf_back"))
+                    }
+                }
+            }
+        } else {
+            LazyColumn(
+                state = scrollState,
+                modifier = Modifier.fillMaxSize().padding(innerPadding),
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(24.dp)
+            ) {
+                itemsIndexed(pageVerses) { _, verse ->
+                    Text(text = verse.text, style = MaterialTheme.typography.headlineMedium.copy(lineHeight = 50.sp, textAlign = TextAlign.Right, color = textPrimC()), modifier = Modifier.fillMaxWidth())
+                    Surface(color = greenBgC(), shape = CircleShape, modifier = Modifier.padding(top = 8.dp)) { Text("${verse.surahName} : ${verse.ayahId}", modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp), style = MaterialTheme.typography.labelSmall, color = greenAccent()) }
+                    HorizontalDivider(modifier = Modifier.padding(top = 16.dp), color = dividerC())
+                }
             }
         }
     }

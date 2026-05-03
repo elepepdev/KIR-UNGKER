@@ -227,7 +227,7 @@ fun QuizSetup(
             @OptIn(ExperimentalMaterial3Api::class)
             TopAppBar(
                 title = { 
-                    Text("Sambung Ayat", fontWeight = FontWeight.ExtraBold, letterSpacing = 0.5.sp, color = textPrimC()) 
+                    Text(LocaleManager.L("quiz_title"), fontWeight = FontWeight.ExtraBold, letterSpacing = 0.5.sp, color = textPrimC()) 
                 },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
@@ -250,7 +250,7 @@ fun QuizSetup(
                         OutlinedTextField(
                             value = searchQuery,
                             onValueChange = { searchQuery = it },
-                            placeholder = { Text("Cari Surah atau Nomor...", color = textMutC()) },
+                            placeholder = { Text(LocaleManager.L("quiz_search_placeholder"), color = textMutC()) },
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(16.dp),
                             leadingIcon = { Icon(Icons.Default.Search, null, tint = greenAccent()) },
@@ -273,7 +273,7 @@ fun QuizSetup(
                     ) {
                         item {
                             Text(
-                                "Pilih Surah Hafalanmu",
+                                LocaleManager.L("quiz_select_surah"),
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
                                 color = textPrimC(),
@@ -288,7 +288,7 @@ fun QuizSetup(
                         if (filteredSurahs.isEmpty() && surahs.isNotEmpty()) {
                             item {
                                 Box(Modifier.fillMaxWidth().padding(40.dp), contentAlignment = Alignment.Center) {
-                                    Text("Surah tidak ditemukan", color = textMutC())
+                                    Text(LocaleManager.L("quiz_not_found"), color = textMutC())
                                 }
                             }
                         }
@@ -406,7 +406,7 @@ fun QuizConfig(
             }
             Spacer(Modifier.width(16.dp))
             Column {
-                Text("Konfigurasi Sesi", style = MaterialTheme.typography.labelMedium, color = textSecC())
+                Text(LocaleManager.L("quiz_config_title"), style = MaterialTheme.typography.labelMedium, color = textSecC())
                 Text(surah.nameLatin, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black, color = textPrimC())
             }
         }
@@ -424,7 +424,7 @@ fun QuizConfig(
                 }
                 Spacer(Modifier.width(16.dp))
                 Text(
-                    "Pilih rentang ayat yang sudah kamu hafal agar kuis lebih efektif.",
+                    LocaleManager.L("quiz_config_tip"),
                     style = MaterialTheme.typography.bodyMedium,
                     color = textPrimC()
                 )
@@ -433,18 +433,18 @@ fun QuizConfig(
 
         Spacer(Modifier.height(32.dp))
 
-        Text("Rentang Ayat", fontWeight = FontWeight.Bold, color = textPrimC())
+        Text(LocaleManager.L("quiz_verse_range"), fontWeight = FontWeight.Bold, color = textPrimC())
         Spacer(Modifier.height(12.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             ConfigInputField(
                 value = fromInput,
-                label = "Dari Ayat",
+                label = LocaleManager.L("quiz_from_ayah"),
                 onValueChange = { if (it.length <= 3) fromInput = it.filter { c -> c.isDigit() } },
                 modifier = Modifier.weight(1f)
             )
             ConfigInputField(
                 value = toInput,
-                label = "Sampai",
+                label = LocaleManager.L("quiz_to_ayah"),
                 onValueChange = { if (it.length <= 3) toInput = it.filter { c -> c.isDigit() } },
                 modifier = Modifier.weight(1f)
             )
@@ -453,10 +453,10 @@ fun QuizConfig(
         Spacer(Modifier.height(32.dp))
 
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Jumlah Soal", fontWeight = FontWeight.Bold, color = textPrimC())
+            Text(LocaleManager.L("quiz_question_count"), fontWeight = FontWeight.Bold, color = textPrimC())
             Spacer(Modifier.weight(1f))
             if (availableAyahCount > 0) {
-                Text("$availableAyahCount ayat terpilih", style = MaterialTheme.typography.bodySmall, color = greenAccent())
+                Text(LocaleManager.LF("quiz_available_verses", availableAyahCount), style = MaterialTheme.typography.bodySmall, color = greenAccent())
             }
         }
         
@@ -535,7 +535,7 @@ fun QuizConfig(
             colors = ButtonDefaults.buttonColors(containerColor = greenAccent()),
             enabled = errorMsg == null && fromInput.isNotBlank() && toInput.isNotBlank()
         ) {
-            Text("MULAI SEKARANG", fontWeight = FontWeight.Black, fontSize = 16.sp, letterSpacing = 1.sp)
+            Text(LocaleManager.L("quiz_start_button"), fontWeight = FontWeight.Black, fontSize = 16.sp, letterSpacing = 1.sp)
         }
         Spacer(Modifier.height(24.dp))
     }
@@ -595,7 +595,7 @@ fun SambungQuizPlay(
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 CircularProgressIndicator(color = greenAccent())
                 Spacer(Modifier.height(12.dp))
-                Text("Menyiapkan hafalan...", color = textSecC(), fontWeight = FontWeight.Bold)
+                Text(LocaleManager.L("quiz_preparing"), color = textSecC(), fontWeight = FontWeight.Bold)
             }
         }
         return
@@ -606,11 +606,11 @@ fun SambungQuizPlay(
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(32.dp)) {
                 Text("😔", fontSize = 64.sp)
                 Spacer(Modifier.height(16.dp))
-                Text("Tidak ada ayat yang cocok.", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = textPrimC())
-                Text("Mungkin rentang ayat terlalu pendek atau kriteria kata tidak terpenuhi.", color = textSecC(), textAlign = TextAlign.Center)
+                Text(LocaleManager.L("quiz_no_verses"), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = textPrimC())
+                Text(LocaleManager.L("quiz_no_verses_desc"), color = textSecC(), textAlign = TextAlign.Center)
                 Spacer(Modifier.height(24.dp))
                 Button(onClick = onBack, colors = ButtonDefaults.buttonColors(containerColor = greenAccent())) {
-                    Text("Kembali")
+                    Text(LocaleManager.L("mushaf_back"))
                 }
             }
         }
@@ -634,18 +634,18 @@ fun SambungQuizPlay(
             ) {
                 Text(if (score >= verses.size * 0.7) "🌟" else "📚", fontSize = 72.sp)
                 Text(
-                    if (score >= verses.size * 0.7) "Luar Biasa!" else "Terus Berlatih!",
+                    if (score >= verses.size * 0.7) LocaleManager.L("quiz_amazing") else LocaleManager.L("quiz_keep_practicing"),
                     style = MaterialTheme.typography.headlineLarge,
                     fontWeight = FontWeight.Black, color = Color.White
                 )
-                Text("$score / ${verses.size} ayat benar",
+                Text(LocaleManager.LF("quiz_result_correct", score, verses.size),
                     style = MaterialTheme.typography.titleLarge, color = Color.White.copy(0.9f))
-                Text("Surah ${state.surahName}",
+                Text(LocaleManager.LF("surah_format", state.surahName),
                     style = MaterialTheme.typography.bodyMedium, color = Color.White.copy(0.7f))
                 
                 if (state.isMushafTab) {
                     Surface(color = Color.White.copy(0.2f), shape = RoundedCornerShape(8.dp)) {
-                        Text("Mode Latihan (Tanpa Kredit)", modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp), color = Color.White, style = MaterialTheme.typography.labelSmall)
+                        Text(LocaleManager.L("quiz_training_mode"), modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp), color = Color.White, style = MaterialTheme.typography.labelSmall)
                     }
                 }
 
@@ -656,7 +656,7 @@ fun SambungQuizPlay(
                     modifier = Modifier.fillMaxWidth().height(52.dp),
                     shape = RoundedCornerShape(16.dp)
                 ) {
-                    Text("Selesai", fontWeight = FontWeight.Bold,
+                    Text(LocaleManager.L("quiz_done"), fontWeight = FontWeight.Bold,
                         color = if (score >= verses.size * 0.7) greenAccent() else Color(0xFF1565C0))
                 }
             }
@@ -733,7 +733,7 @@ fun SambungQuizPlay(
                     }
                     Column(modifier = Modifier.weight(1f)) {
                         Text(state.surahName, fontWeight = FontWeight.Bold, color = textPrimC())
-                        Text("Soal ${targetIdx + 1} dari ${verses.size}",
+                        Text(LocaleManager.LF("quiz_question_num", targetIdx + 1, verses.size),
                             style = MaterialTheme.typography.bodySmall, color = textSecC())
                     }
                     Surface(color = greenBgC(), shape = RoundedCornerShape(12.dp)) {
@@ -755,11 +755,11 @@ fun SambungQuizPlay(
                 )
 
                 Spacer(Modifier.height(24.dp))
-                Text("Susunlah potongan ayat ini:",
+                Text(LocaleManager.L("quiz_instruction"),
                     style = MaterialTheme.typography.bodyLarge, color = textSecC(), fontWeight = FontWeight.Medium)
                 
                 if (state.isMushafTab) {
-                    Text("(Mode Latihan - Tanpa Kredit)", style = MaterialTheme.typography.labelSmall, color = textMutC())
+                    Text(LocaleManager.L("quiz_training_mode"), style = MaterialTheme.typography.labelSmall, color = textMutC())
                 }
 
                 Spacer(Modifier.height(16.dp))
@@ -788,7 +788,7 @@ fun SambungQuizPlay(
                 ) {
                     if (currentSelectedWords.isEmpty()) {
                         Text(
-                            "Ketuk kata di bawah untuk menyusun ayat",
+                            LocaleManager.L("quiz_tap_hint"),
                             color = textMutC(), textAlign = TextAlign.Center,
                             modifier = Modifier.align(Alignment.Center)
                         )
@@ -845,7 +845,7 @@ fun SambungQuizPlay(
                         modifier = Modifier.fillMaxWidth().height(56.dp),
                         shape = RoundedCornerShape(16.dp)
                     ) {
-                        Text("COBA LAGI", fontWeight = FontWeight.Bold)
+                        Text(LocaleManager.L("quiz_try_again"), fontWeight = FontWeight.Bold)
                     }
                 }
             }

@@ -92,6 +92,7 @@ class SocialMediaLockActivity : ComponentActivity() {
         androidx.core.view.WindowCompat.setDecorFitsSystemWindows(window, false)
 
         targetPackage = intent.getStringExtra("target_package")
+        val isWarning = intent.getBooleanExtra("is_warning", false)
 
         setupLockScreenFlags()
 
@@ -140,6 +141,7 @@ class SocialMediaLockActivity : ComponentActivity() {
                     ) {
                         SocialMediaLockScreen(
                             targetPackage = targetPackage,
+                            isWarning = isWarning,
                             onDismiss = { finish() }
                         )
                     }
@@ -171,7 +173,7 @@ class SocialMediaLockActivity : ComponentActivity() {
 }
 
 @Composable
-fun SocialMediaLockScreen(targetPackage: String?, onDismiss: () -> Unit) {
+fun SocialMediaLockScreen(targetPackage: String?, isWarning: Boolean = false, onDismiss: () -> Unit) {
     val context = LocalContext.current
     val dark = LocalIsDarkMode.current
     
@@ -194,7 +196,13 @@ fun SocialMediaLockScreen(targetPackage: String?, onDismiss: () -> Unit) {
     }
     
     var currentState by rememberSaveable { 
-        mutableStateOf(if (isHardLockedInitially) SocialMediaLockState.HARD_LOCKED else SocialMediaLockState.INTRODUCTION) 
+        mutableStateOf(
+            when {
+                isWarning -> SocialMediaLockState.WARNING
+                isHardLockedInitially -> SocialMediaLockState.HARD_LOCKED
+                else -> SocialMediaLockState.INTRODUCTION
+            }
+        ) 
     }
     var pagesRead by rememberSaveable { mutableIntStateOf(0) }
     
@@ -326,6 +334,23 @@ fun SocialMediaLockScreen(targetPackage: String?, onDismiss: () -> Unit) {
                 onDismiss = navigateToHome
             )
         }
+
+        SocialMediaLockState.WARNING -> {
+            WarningScreen(
+                targetPackage = targetPackage,
+                onExit = navigateToHome,
+                onEnableProtection = {
+                    // Logic to enable for this app
+                    val sp = context.getSharedPreferences("UNGKER_PREF", Context.MODE_PRIVATE)
+                    val blocked = sp.getStringSet("blocked_apps", emptySet())?.toMutableSet() ?: mutableSetOf()
+                    targetPackage?.let { 
+                        blocked.add(it)
+                        sp.edit { putStringSet("blocked_apps", blocked) }
+                    }
+                    onDismiss()
+                }
+            )
+        }
     }
 }
 
@@ -334,7 +359,76 @@ enum class SocialMediaLockState {
     READING_CHALLENGE,
     CHOICE_SCREEN,
     PARENT_PASSWORD,
-    HARD_LOCKED
+    HARD_LOCKED,
+    WARNING
+}
+
+@Composable
+fun WarningScreen(
+    targetPackage: String?,
+    onExit: () -> Unit,
+    onEnableProtection: () -> Unit
+) {
+    val context = LocalContext.current
+    val pm = context.packageManager
+    val appName = remember {
+        try {
+            targetPackage?.let { pm.getApplicationLabel(pm.getApplicationInfo(it, 0)).toString() } ?: LocaleManager.L("social_lock_fallback_app")
+        } catch (e: Exception) { LocaleManager.L("social_lock_fallback_app") }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF7F1D1D)) // Dark Red Background
+            .padding(32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Text(text = "⚠️", fontSize = 80.sp)
+        
+        Spacer(modifier = Modifier.height(24.dp))
+        
+        Text(
+            text = "Pembatasan Belum Aktif!",
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.ExtraBold,
+            color = Color.White,
+            textAlign = TextAlign.Center
+        )
+        
+        Spacer(modifier = Modifier.height(16.dp))
+        
+        Text(
+            text = "$appName terdeteksi belum masuk dalam daftar blokir Ungker. Kamu tidak bisa membypass sistem!",
+            style = MaterialTheme.typography.bodyLarge,
+            color = Color(0xFFFECACA),
+            textAlign = TextAlign.Center
+        )
+        
+        Spacer(modifier = Modifier.height(40.dp))
+
+        Button(
+            onClick = onEnableProtection,
+            modifier = Modifier.fillMaxWidth().height(56.dp),
+            shape = RoundedCornerShape(16.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color(0xFF7F1D1D))
+        ) {
+            Text(LocaleManager.L("social_lock_enable_now"), fontWeight = FontWeight.Bold)
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        OutlinedButton(
+            onClick = onExit,
+            modifier = Modifier.fillMaxWidth().height(56.dp),
+            shape = RoundedCornerShape(16.dp),
+            border = BorderStroke(1.dp, Color.White),
+            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.White)
+        ) {
+            Text(LocaleManager.L("social_lock_exit"))
+        }
+    }
 }
 
 @Composable
@@ -363,7 +457,7 @@ fun IntroductionScreen(
         Spacer(modifier = Modifier.height(24.dp))
         
         Text(
-            text = "Waktu Medsos Habis!",
+            text = LocaleManager.L("social_lock_title"),
             style = MaterialTheme.typography.headlineMedium,
             fontWeight = FontWeight.Bold,
             color = textPrim,
@@ -373,7 +467,7 @@ fun IntroductionScreen(
         Spacer(modifier = Modifier.height(16.dp))
         
         Text(
-            text = "Kamu sudah menghabiskan batas waktu penggunaan media sosial hari ini.",
+            text = LocaleManager.L("social_lock_time_desc"),
             style = MaterialTheme.typography.bodyLarge,
             color = textSec,
             textAlign = TextAlign.Center
@@ -405,7 +499,7 @@ fun IntroductionScreen(
                 )
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
-                    text = "Baca 5 halaman Al-Quran di aplikasi untuk membuka kembali akses medsos.",
+                    text = LocaleManager.L("social_lock_desc"),
                     style = MaterialTheme.typography.bodyMedium,
                     color = textSec,
                     textAlign = TextAlign.Center
@@ -426,7 +520,7 @@ fun IntroductionScreen(
             Icon(Icons.Default.PlayArrow, contentDescription = null)
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = "Mulai Membaca",
+                text = LocaleManager.L("btn_start_reading"),
                 fontWeight = FontWeight.Bold,
                 fontSize = 18.sp
             )
@@ -439,7 +533,7 @@ fun IntroductionScreen(
             modifier = Modifier.fillMaxWidth()
         ) {
             Text(
-                text = "Nanti saja, keluar aplikasi",
+                text = LocaleManager.L("btn_exit_later"),
                 color = textSec,
                 style = MaterialTheme.typography.bodyMedium,
                 textDecoration = TextDecoration.Underline
@@ -585,7 +679,7 @@ fun ReadingChallengeScreen(
             Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = null, tint = greenAccent)
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = "Buka Mushaf",
+                text = LocaleManager.L("btn_open_mushaf"),
                 fontWeight = FontWeight.Bold,
                 color = greenAccent
             )
@@ -594,7 +688,7 @@ fun ReadingChallengeScreen(
         Spacer(modifier = Modifier.height(16.dp))
         
         Text(
-            text = "Klik tombol di atas untuk membuka aplikasi Mushaf.\nHalaman yang dibaca akan otomatis terdeteksi.",
+            text = LocaleManager.L("social_lock_mushaf_hint"),
             style = MaterialTheme.typography.bodySmall,
             color = textSec,
             textAlign = TextAlign.Center
@@ -607,7 +701,7 @@ fun ReadingChallengeScreen(
             modifier = Modifier.fillMaxWidth()
         ) {
             Text(
-                text = "Keluar aplikasi",
+                text = LocaleManager.L("social_lock_exit_short"),
                 color = textSec,
                 style = MaterialTheme.typography.bodySmall,
                 textDecoration = TextDecoration.Underline
@@ -678,7 +772,7 @@ fun ParentPasswordUnlockScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .focusRequester(focusRequester),
-            placeholder = { Text("Masukkan password", color = textSec.copy(alpha = 0.5f)) },
+            placeholder = { Text(LocaleManager.L("soc_lock_password_placeholder"), color = textSec.copy(alpha = 0.5f)) },
             singleLine = true,
             isError = isError,
             visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
@@ -731,7 +825,7 @@ fun ParentPasswordUnlockScreen(
             colors = ButtonDefaults.buttonColors(containerColor = greenAccent)
         ) {
             Text(
-                text = "Buka Kunci",
+                text = LocaleManager.L("btn_unlock"),
                 fontWeight = FontWeight.Bold,
                 fontSize = 18.sp
             )
@@ -829,7 +923,7 @@ fun ChoiceScreen(
                         color = textPrim
                     )
                     Text(
-                        text = "+30 menit waktu tambahan (kredit tetap berjalan)",
+                        text = "+ 30 menit waktu tambahan",
                         style = MaterialTheme.typography.bodySmall,
                         color = textSec
                     )
@@ -873,13 +967,13 @@ fun ChoiceScreen(
                 Spacer(modifier = Modifier.width(16.dp))
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "Ikhlas karena Allah",
+                        text = "Ikhlas karena Allah (RECOMMENDED)",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.Bold,
                         color = orangeAccent
                     )
                     Text(
-                        text = "Dikunci sampai besok",
+                        text = "Gunakan kembali media sosial esok hari.",
                         style = MaterialTheme.typography.bodySmall,
                         color = textSec
                     )
@@ -895,7 +989,7 @@ fun ChoiceScreen(
         Spacer(modifier = Modifier.height(32.dp))
         
         Text(
-            text = "Pilihlah dengan penuh kehendakan Allah",
+            text = "Pilihlah dengan penuh kesadaran.",
             style = MaterialTheme.typography.bodySmall,
             color = textSec,
             textAlign = TextAlign.Center
@@ -917,9 +1011,9 @@ fun HardLockedScreen(
     val hardLockReason = remember { prefs.getHardLockReason() }
     
     val (titleText, messageText) = when (hardLockReason) {
-        "ikhlas" -> "Masya Allah! Kamu memilih untuk berhenti hari ini. Sampai jumpa besok" to "Selamat beristirahat, sampai jumpa besok 🌙"
-        "limit_exceeded" -> "Batas waktu + bonus 30 menit sudah habis" to "Lanjutkan besok, tetap semangat! 🚫"
-        else -> "Sudah Ikhlas Hari Ini" to "Batas waktu media sosialmu sudah habis sepenuhnya untuk hari ini. Mari lanjutkan kegiatan positif lainnya!"
+        "ikhlas" -> LocaleManager.L("hard_lock_ikhlas_title") to LocaleManager.L("hard_lock_ikhlas_message")
+        "limit_exceeded" -> LocaleManager.L("hard_lock_limit_title") to LocaleManager.L("hard_lock_limit_message")
+        else -> LocaleManager.L("hard_lock_default_title") to LocaleManager.L("hard_lock_default_message")
     }
     
     Column(
@@ -930,7 +1024,7 @@ fun HardLockedScreen(
         verticalArrangement = Arrangement.Center
     ) {
         Text(
-            text = "🕊️",
+            text = "👋🏼",
             fontSize = 80.sp
         )
         
@@ -964,7 +1058,7 @@ fun HardLockedScreen(
             colors = ButtonDefaults.buttonColors(containerColor = orangeAccent)
         ) {
             Text(
-                text = "Tutup & Ikhlas",
+                text = LocaleManager.L("btn_close"),
                 fontWeight = FontWeight.Bold,
                 fontSize = 18.sp
             )

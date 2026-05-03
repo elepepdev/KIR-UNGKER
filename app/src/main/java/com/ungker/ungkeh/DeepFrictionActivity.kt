@@ -149,8 +149,8 @@ fun DeepFrictionScreen(
     targetPackage: String,
     onCancel: () -> Unit,
     onSuccess: () -> Unit
-) {
-    val context = LocalContext.current
+) {  val context = LocalContext.current
+
     val scope = rememberCoroutineScope()
     
     var appName by remember { mutableStateOf("") }
@@ -212,7 +212,7 @@ fun DeepFrictionScreen(
             Spacer(modifier = Modifier.height(24.dp))
             
             Text(
-                text = "Kenapa kamu mau buka $appName sekarang?",
+                text = LocaleManager.LF("df_question", appName),
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center
@@ -227,7 +227,7 @@ fun DeepFrictionScreen(
                     errorMessage = null
                 },
                 modifier = Modifier.fillMaxWidth().height(120.dp),
-                placeholder = { Text("Tulis alasanmu di sini (min. 10 karakter)...") },
+                placeholder = { Text(LocaleManager.L("df_placeholder")) },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Text),
                 shape = RoundedCornerShape(16.dp),
                 colors = OutlinedTextFieldDefaults.colors(
@@ -273,7 +273,7 @@ fun DeepFrictionScreen(
                 } else {
                     Icon(Icons.Default.Send, contentDescription = null)
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Kirim alasan", fontWeight = FontWeight.Bold)
+                    Text(LocaleManager.L("df_submit"), fontWeight = FontWeight.Bold)
                 }
             }
             
@@ -282,12 +282,12 @@ fun DeepFrictionScreen(
             TextButton(onClick = onCancel) {
                 Icon(Icons.Default.Cancel, contentDescription = null)
                 Spacer(modifier = Modifier.width(8.dp))
-                Text("Gak jadi deh, tutup aja")
+                Text(LocaleManager.L("df_cancel"))
             }
         } else {
             // Step 2: AI Response & Countdown
             Text(
-                text = "💬 Pesan dari orang tak dikenal:",
+                text = LocaleManager.L("df_ai_header"),
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.primary
             )
@@ -312,7 +312,7 @@ fun DeepFrictionScreen(
             
             if (countdown > 0) {
                 Text(
-                    text = "Membuka $appName dalam...",
+                    text = LocaleManager.LF("df_countdown", appName),
                     style = MaterialTheme.typography.bodyMedium,
                     color = Color.Gray
                 )
@@ -324,7 +324,7 @@ fun DeepFrictionScreen(
                 )
             } else if (countdown == 0) {
                 Text(
-                    text = "Selamat menggunakan!",
+                    text = LocaleManager.L("df_success"),
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary
@@ -337,7 +337,7 @@ fun DeepFrictionScreen(
                 onClick = onCancel,
                 shape = RoundedCornerShape(16.dp)
             ) {
-                Text("Batalkan & Tutup")
+                Text(LocaleManager.L("df_cancel_button"))
             }
         }
     }

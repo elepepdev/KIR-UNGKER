@@ -9,6 +9,7 @@ import android.content.Intent
 import android.graphics.PixelFormat
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.View
@@ -61,8 +62,6 @@ import kotlinx.coroutines.launch
 import java.util.Calendar
 
 // ─── Konstanta ──────────────────────────────────────────────────────────────
-const val PLEDGE_TEXT =
-    "Saya berjanji akan pergi sholat setelah melakukan sesuatu dengan aplikasi ini, dan sesungguhnya Allah maha melihat"
 
 const val PLEDGE_CREDIT_MS    = 2L * 60 * 1000
 const val SHOLAT_WINDOW_MS     = 10L * 60 * 1000
@@ -176,13 +175,31 @@ class SholatLockActivity : ComponentActivity() {
     private fun checkAndRelaunch() {
         scope.launch {
             delay(300)
-            if (!isFinishing && isWithinPrayerWindow(this@SholatLockActivity).first && !hasPledgeCredit(this@SholatLockActivity)) {
+            val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+            val isInteractive = pm.isInteractive
+
+            if (isInteractive && !isFinishing && isWithinPrayerWindow(this@SholatLockActivity).first && !hasPledgeCredit(this@SholatLockActivity)) {
                 val intent = Intent(this@SholatLockActivity, SholatLockActivity::class.java).apply {
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_NO_ANIMATION)
                     targetPackage?.let { putExtra("target_package", it) }
                     activePrayerFromIntent?.let { putExtra("active_prayer", it) }
                 }
                 startActivity(intent)
+            }
+        }
+    }
+
+    private fun excludeGestures() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val rootView = window.decorView.findViewById<View>(android.R.id.content)
+            rootView.post {
+                val rects = mutableListOf<android.graphics.Rect>()
+                // Exclude bottom area for Home gesture (usually ~200px)
+                rects.add(android.graphics.Rect(0, rootView.height - 200, rootView.width, rootView.height))
+                // Exclude side areas for Back gesture
+                rects.add(android.graphics.Rect(0, 0, 100, rootView.height))
+                rects.add(android.graphics.Rect(rootView.width - 100, 0, rootView.width, rootView.height))
+                rootView.systemGestureExclusionRects = rects
             }
         }
     }
@@ -195,6 +212,7 @@ class SholatLockActivity : ComponentActivity() {
         applyDndBlock()
         setupLockFlags()
         addTotalLockOverlay()
+        excludeGestures()
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) { override fun handleOnBackPressed() {} })
         val isExpiredMode = pledgeWasUsedAndExpired(this)
         scope.launch {
@@ -214,7 +232,6 @@ class SholatLockActivity : ComponentActivity() {
     @Suppress("DEPRECATION")
     private fun setupLockFlags() {
         window.addFlags(
-            WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
             WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON or
             WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED or
             WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD or
@@ -414,7 +431,7 @@ private fun CrescentMoonOrb(prayerName: String, remainingSec: Long) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text("🕌", fontSize = 42.sp)
                 Text(
-                    prayerName.ifEmpty { "Sholat" }.uppercase(),
+                    prayerName.ifEmpty { LocaleManager.L("sholat_label") }.uppercase(),
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Black,
                     color = accentColor,
@@ -528,7 +545,7 @@ fun SholatPledgeScreen(initialPrayerName: String, onUnlocked: () -> Unit) {
                     )
                     Spacer(Modifier.height(12.dp))
                     Text(
-                        "\"Sesungguhnya shalat itu adalah kewajiban yang ditentukan waktunya atas orang-orang mukmin.\"",
+                        LocaleManager.L("sholat_quote"),
                         fontSize = 12.sp,
                         color = textSecondary,
                         textAlign = TextAlign.Center,
@@ -551,7 +568,7 @@ fun SholatPledgeScreen(initialPrayerName: String, onUnlocked: () -> Unit) {
                         .padding(16.dp)
                 ) {
                     Text(
-                        PLEDGE_TEXT,
+                        LocaleManager.L("sholat_pledge_text"),
                         color = textPrimary,
                         textAlign = TextAlign.Center,
                         fontSize = 14.sp,
@@ -587,7 +604,7 @@ fun ParentPasswordInputField(savedPassword: String, onUnlocked: () -> Unit) {
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Text(
-            "Masukkan Password Orang Tua",
+            LocaleManager.L("sholat_password_title"),
             color = textSecC(),
             fontSize = 14.sp,
             fontWeight = FontWeight.Bold,
@@ -613,7 +630,7 @@ fun ParentPasswordInputField(savedPassword: String, onUnlocked: () -> Unit) {
             modifier = Modifier
                 .fillMaxWidth()
                 .focusRequester(focus),
-            placeholder = { Text("Password Orang Tua", color = textMutC(), fontSize = 14.sp) },
+            placeholder = { Text(LocaleManager.L("sholat_parent_password_placeholder"), color = textMutC(), fontSize = 14.sp) },
             singleLine = true,
             enabled = !success,
             isError = isError,
@@ -639,7 +656,7 @@ fun ParentPasswordInputField(savedPassword: String, onUnlocked: () -> Unit) {
 
         if (isError) {
             Text(
-                "Password salah!",
+                LocaleManager.L("sholat_password_error"),
                 color = Color.Red,
                 fontSize = 12.sp,
                 modifier = Modifier.fillMaxWidth(),
@@ -654,7 +671,7 @@ fun ParentPasswordInputField(savedPassword: String, onUnlocked: () -> Unit) {
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Text(
-                    "✅ Password Benar! Membuka kunci...",
+                    LocaleManager.L("sholat_unlock_password"),
                     color = Color(0xFF2D6A4F),
                     fontWeight = FontWeight.Black,
                     fontSize = 15.sp
@@ -708,7 +725,7 @@ fun SholatFinalLockScreen() {
             )
             Spacer(Modifier.height(12.dp))
             Text(
-                "Saatnya Menghadap\nAllah ﷻ",
+                LocaleManager.L("sholat_lock_title"),
                 fontSize = 28.sp,
                 fontWeight = FontWeight.Black,
                 color = textPrimary,
@@ -717,7 +734,7 @@ fun SholatFinalLockScreen() {
             )
             Spacer(Modifier.height(24.dp))
             Text(
-                "Layar terkunci hingga waktu sholat selesai.",
+                LocaleManager.L("sholat_lock_desc"),
                 fontSize = 14.sp,
                 color = textSecondary,
                 textAlign = TextAlign.Center
@@ -742,8 +759,9 @@ fun PledgeInputField(onUnlocked: () -> Unit) {
         try { focus.requestFocus() } catch (_: Exception) {}
     }
 
-    val isCorrect = input.trim().equals(PLEDGE_TEXT, ignoreCase = true)
-    val progress = (input.length.toFloat() / PLEDGE_TEXT.length).coerceIn(0f, 1f)
+    val pledgeText = LocaleManager.getPledgeText()
+    val isCorrect = input.trim().equals(pledgeText, ignoreCase = true)
+    val progress = (input.length.toFloat() / pledgeText.length).coerceIn(0f, 1f)
 
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         LinearProgressIndicator(
@@ -761,7 +779,7 @@ fun PledgeInputField(onUnlocked: () -> Unit) {
             onValueChange = { new ->
                 if (success) return@OutlinedTextField
                 input = new
-                if (new.trim().equals(PLEDGE_TEXT, ignoreCase = true)) {
+                if (new.trim().equals(LocaleManager.getPledgeText(), ignoreCase = true)) {
                     success = true
                     savePledgeCredit(context)
                     scope.launch {
@@ -773,7 +791,7 @@ fun PledgeInputField(onUnlocked: () -> Unit) {
             modifier = Modifier
                 .fillMaxWidth()
                 .focusRequester(focus),
-            placeholder = { Text("Ketik janji di sini...", color = textMutC(), fontSize = 14.sp) },
+            placeholder = { Text(LocaleManager.L("sholat_lock_pledge_placeholder"), color = textMutC(), fontSize = 14.sp) },
             minLines = 3,
             enabled = !success,
             shape = RoundedCornerShape(16.dp),
@@ -801,8 +819,8 @@ fun PledgeInputField(onUnlocked: () -> Unit) {
                 horizontalArrangement = Arrangement.Center,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text(
-                    "✅ Alhamdulillah! Membuka kunci...",
+Text(
+                    LocaleManager.L("sholat_unlock_pledge"),
                     color = Color(0xFF2D6A4F),
                     fontWeight = FontWeight.Black,
                     fontSize = 15.sp

@@ -1,21 +1,33 @@
-# Add project specific ProGuard rules here.
-# You can control the set of applied configuration files using the
-# proguardFiles setting in build.gradle.
-#
-# For more details, see
-#   http://developer.android.com/guide/developing/tools/proguard.html
+# Project specific ProGuard rules
 
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
+# Jetpack Compose
+-keepclassmembers class androidx.compose.ui.platform.AndroidComposeView {
+    void *;
+}
+-keep class androidx.compose.ui.platform.** { *; }
+-keep interface androidx.compose.ui.platform.** { *; }
 
-# Uncomment this to preserve the line number information for
-# debugging stack traces.
-#-keepattributes SourceFile,LineNumberTable
+# Kotlin Coroutines
+-keepnames class kotlinx.coroutines.internal.MainDispatcherFactory {}
+-keepnames class kotlinx.coroutines.CoroutineExceptionHandler {}
+-keepclassmembers class kotlinx.coroutines.** {
+    volatile <fields>;
+}
 
-# If you keep the line number information, uncomment this to
-# hide the original source file name.
-#-renamesourcefileattribute SourceFile
+# Coil
+-keep class coil.** { *; }
+-keep interface coil.** { *; }
+
+# Serialization (if any data classes are used for JSON/AI)
+-keepattributes Signature
+-keepattributes *Annotation*
+-keep class com.ungker.ungkeh.data.** { *; }
+-keep class com.ungker.ungkeh.Verse { *; }
+-keep class com.ungker.ungkeh.ChapterMeta { *; }
+-keep class com.ungker.ungkeh.PrayerTimes { *; }
+
+# Material3
+-keep class androidx.compose.material3.** { *; }
+
+# Build Config
+-keep class com.ungker.ungkeh.BuildConfig { *; }
