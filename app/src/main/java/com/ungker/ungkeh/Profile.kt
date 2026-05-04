@@ -31,6 +31,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.font.FontWeight
@@ -272,163 +273,184 @@ fun ProfilScreen() {
         )
     }
 
-    if (showSettings) {
-        Column(
+if (showSettings) {
+        val configuration = LocalConfiguration.current
+        val screenHeightDp = configuration.screenHeightDp
+        val isSmallScreen = screenHeightDp < 400
+        
+        val horizontalPadding = if (isSmallScreen) 12.dp else 16.dp
+        val verticalPadding = if (isSmallScreen) 8.dp else 12.dp
+        val itemSpacing = if (isSmallScreen) 8.dp else 16.dp
+        val sectionSpacing = if (isSmallScreen) 16.dp else 24.dp
+        val headerSpacing = if (isSmallScreen) 20.dp else 32.dp
+        
+        LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
                 .background(pageBg())
-                .padding(24.dp)
+                .padding(horizontal = horizontalPadding, vertical = verticalPadding)
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.clickable { showSettings = false }
-            ) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = textPrimC())
-                Spacer(Modifier.width(12.dp))
-                Text(LocaleManager.L("settings_header"), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = textPrimC())
+            item {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .clickable { showSettings = false }
+                        .padding(vertical = 8.dp)
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, null, tint = textPrimC())
+                    Spacer(Modifier.width(12.dp))
+                    Text(LocaleManager.L("settings_header"), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = textPrimC())
+                }
             }
             
-            Spacer(Modifier.height(32.dp))
+            item {
+                Spacer(Modifier.height(headerSpacing))
+                Text(LocaleManager.L("active_features"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = textSecC())
+            }
             
-            Text(LocaleManager.L("active_features"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = textSecC())
-// Toggle Deep Friction - Promise saat MATIKAN
-            SettingsToggleItem(
-                title = LocaleManager.L("deep_friction_title"),
-                desc = LocaleManager.L("deep_friction_desc"),
-                checked = deepFrictionEnabled,
-                onCheckedChange = { 
-                    // Promise hanya saat MATIKAN (true → false)
-                    if (!it && deepFrictionEnabled) {
-                        promiseDialogFeature = "deepFriction"
-                    } else {
-                        deepFrictionEnabled = it
-                        sp.edit { putBoolean("feature_deep_friction_enabled", it) }
+            item {
+                Spacer(Modifier.height(itemSpacing))
+                SettingsToggleItem(
+                    title = LocaleManager.L("deep_friction_title"),
+                    desc = LocaleManager.L("deep_friction_desc"),
+                    checked = deepFrictionEnabled,
+                    onCheckedChange = { 
+                        if (!it && deepFrictionEnabled) {
+                            promiseDialogFeature = "deepFriction"
+                        } else {
+                            deepFrictionEnabled = it
+                            sp.edit { putBoolean("feature_deep_friction_enabled", it) }
+                        }
                     }
-                }
-            )
+                )
+            }
             
-            Spacer(Modifier.height(16.dp))
-            
-// Toggle Sholat Lock - Promise saat MATIKAN
-            SettingsToggleItem(
-                title = LocaleManager.L("sholat_lock_title"),
-                desc = LocaleManager.L("sholat_lock_desc"),
-                checked = sholatLockEnabled,
-                onCheckedChange = {
-                    // Promise hanya saat MATIKAN (true → false)
-                    if (!it && sholatLockEnabled) {
-                        promiseDialogFeature = "sholatLock"
-                    } else {
-                        sholatLockEnabled = it
-                        sp.edit { putBoolean("feature_sholat_lock_enabled", it) }
+            item {
+                Spacer(Modifier.height(itemSpacing))
+                SettingsToggleItem(
+                    title = LocaleManager.L("sholat_lock_title"),
+                    desc = LocaleManager.L("sholat_lock_desc"),
+                    checked = sholatLockEnabled,
+                    onCheckedChange = {
+                        if (!it && sholatLockEnabled) {
+                            promiseDialogFeature = "sholatLock"
+                        } else {
+                            sholatLockEnabled = it
+                            sp.edit { putBoolean("feature_sholat_lock_enabled", it) }
+                        }
                     }
-                }
-            )
+                )
+            }
             
-            Spacer(Modifier.height(16.dp))
-            
-// Toggle Prayer Notification - Promise saat MATIKAN
-            SettingsToggleItem(
-                title = LocaleManager.L("prayer_notif_title"),
-                desc = LocaleManager.L("prayer_notif_desc"),
-                checked = prayerNotifEnabled,
-                onCheckedChange = {
-                    // Promise hanya saat MATIKAN (true → false)
-                    if (!it && prayerNotifEnabled) {
-                        promiseDialogFeature = "prayerNotif"
-                    } else {
-                        prayerNotifEnabled = it
-                        sp.edit { putBoolean("feature_prayer_notification_enabled", it) }
+            item {
+                Spacer(Modifier.height(itemSpacing))
+                SettingsToggleItem(
+                    title = LocaleManager.L("prayer_notif_title"),
+                    desc = LocaleManager.L("prayer_notif_desc"),
+                    checked = prayerNotifEnabled,
+                    onCheckedChange = {
+                        if (!it && prayerNotifEnabled) {
+                            promiseDialogFeature = "prayerNotif"
+                        } else {
+                            prayerNotifEnabled = it
+                            sp.edit { putBoolean("feature_prayer_notification_enabled", it) }
+                        }
                     }
-                }
-            )
+                )
+            }
             
             if (prayerNotifEnabled) {
-                Spacer(Modifier.height(16.dp))
-                
-                // Minutes slider
+                item {
+                    Spacer(Modifier.height(itemSpacing))
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = cardBg()),
+                        shape = RoundedCornerShape(16.dp),
+                        border = BorderStroke(1.dp, borderC())
+                    ) {
+                        Column(modifier = Modifier.padding(if (isSmallScreen) 12.dp else 16.dp)) {
+                            Text(
+                                LocaleManager.LF("settings_notif_before", prayerNotifMinutes),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = textPrimC(),
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(Modifier.height(8.dp))
+                            
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(LocaleManager.L("input_5"), style = MaterialTheme.typography.labelSmall, color = textSecC())
+                                Slider(
+                                    value = prayerNotifMinutes.toFloat(),
+                                    onValueChange = { 
+                                        prayerNotifMinutes = it.toInt()
+                                        sp.edit { putInt("prayer_notification_minutes_before", it.toInt()) }
+                                    },
+                                    valueRange = 5f..20f,
+                                    steps = 2,
+                                    modifier = Modifier.weight(1f),
+                                    colors = SliderDefaults.colors(
+                                        thumbColor = greenAccent(),
+                                        activeTrackColor = greenAccent()
+                                    )
+                                )
+                                Text(LocaleManager.L("input_20"), style = MaterialTheme.typography.labelSmall, color = textSecC())
+                            }
+                            
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                LocaleManager.LF("settings_notif_example", prayerNotifMinutes),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = textSecC()
+                            )
+                        }
+                    }
+                }
+            }
+            
+            item {
+                Spacer(Modifier.height(sectionSpacing))
+                Text(LocaleManager.L("settings_language"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = textSecC())
+            }
+            
+            item {
+                Spacer(Modifier.height(if (isSmallScreen) 8.dp else 12.dp))
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(containerColor = cardBg()),
                     shape = RoundedCornerShape(16.dp),
                     border = BorderStroke(1.dp, borderC())
                 ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text(
-                            LocaleManager.LF("settings_notif_before", prayerNotifMinutes),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = textPrimC(),
-                            fontWeight = FontWeight.Bold
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(if (isSmallScreen) 12.dp else 16.dp),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        LanguageButton(
+                            label = "English",
+                            selected = LocaleManager.getLanguage() == "en",
+                            onClick = { LocaleManager.setLanguage("en") }
                         )
-                        Spacer(Modifier.height(8.dp))
-                        
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(LocaleManager.L("input_5"), style = MaterialTheme.typography.labelSmall, color = textSecC())
-                            Slider(
-                                value = prayerNotifMinutes.toFloat(),
-                                onValueChange = { 
-                                    prayerNotifMinutes = it.toInt()
-                                    sp.edit { putInt("prayer_notification_minutes_before", it.toInt()) }
-                                },
-                                valueRange = 5f..20f,
-                                steps = 2,
-                                modifier = Modifier.weight(1f),
-                                colors = SliderDefaults.colors(
-                                    thumbColor = greenAccent(),
-                                    activeTrackColor = greenAccent()
-                                )
-                            )
-                            Text(LocaleManager.L("input_20"), style = MaterialTheme.typography.labelSmall, color = textSecC())
-                        }
-                        
-                        // Preview
-                        Spacer(Modifier.height(8.dp))
-                        Text(
-                            LocaleManager.LF("settings_notif_example", prayerNotifMinutes),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = textSecC()
+                        LanguageButton(
+                            label = "Bahasa Indonesia",
+                            selected = LocaleManager.getLanguage() == "id",
+                            onClick = { LocaleManager.setLanguage("id") }
                         )
                     }
                 }
             }
             
-            Spacer(Modifier.height(24.dp))
-            
-            // Language Selector
-            Text(LocaleManager.L("settings_language"), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = textSecC())
-            Spacer(Modifier.height(12.dp))
-            
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = cardBg()),
-                shape = RoundedCornerShape(16.dp),
-                border = BorderStroke(1.dp, borderC())
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    LanguageButton(
-                        label = "English",
-                        selected = LocaleManager.getLanguage() == "en",
-                        onClick = { LocaleManager.setLanguage("en") }
-                    )
-                    LanguageButton(
-                        label = "Bahasa Indonesia",
-                        selected = LocaleManager.getLanguage() == "id",
-                        onClick = { LocaleManager.setLanguage("id") }
-                    )
-                }
+            item {
+                Spacer(Modifier.height(24.dp))
             }
         }
         return
     }
+            
 
     LazyColumn(
         modifier            = Modifier.fillMaxSize(),
